@@ -311,6 +311,27 @@ class NanoBananaProcessor:
         return None
 
     @staticmethod
+    def _normalize_image(image_bytes: bytes) -> tuple[bytes, str]:
+        """Return (image_bytes, mime_type). JPEG/PNG pass through unchanged;
+        exotic formats (AVIF, WebP, HEIC, …) are converted to PNG."""
+        if image_bytes[:3] == b"\xff\xd8\xff":
+            return image_bytes, "image/jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            return image_bytes, "image/png"
+        # Exotic format — flatten transparency onto white and convert to PNG
+        try:
+            from PIL import Image
+            import io as _io
+            img = Image.open(_io.BytesIO(image_bytes)).convert("RGBA")
+            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            bg.paste(img, mask=img.split()[3])
+            buf = _io.BytesIO()
+            bg.convert("RGB").save(buf, format="PNG")
+            return buf.getvalue(), "image/png"
+        except Exception:
+            return image_bytes, "image/png"
+
+    @staticmethod
     def _to_browser_image_url(output_file: Path, image_bytes: bytes) -> str:
         """
         Prefer a URL path when output is written under try-on-react/public.
@@ -375,19 +396,33 @@ class NanoBananaProcessor:
             )
 
         prompt = (
-            "You are a virtual fitting room. You will receive two images:\n"
-            "- IMAGE 1 (person): a photo of a person standing in front of a mirror or camera.\n"
-            "- IMAGE 2 (garment): a clothing item to try on.\n\n"
-            "Task: Generate a single photorealistic image of the person from IMAGE 1 wearing the garment from IMAGE 2.\n\n"
-            "Rules:\n"
-            "- Preserve the person's exact face, skin tone, hair, body shape, pose, and proportions from IMAGE 1.\n"
-            "- Preserve the original background, lighting, and camera angle from IMAGE 1.\n"
-            "- Keep all accessories (shoes, bags, jewelry) from IMAGE 1 unless hidden by the new garment.\n"
-            "- Replace ONLY the clothing with the garment from IMAGE 2, fitting it naturally to the person's body.\n"
-            "- Match the garment's color, pattern, texture, and style exactly as shown in IMAGE 2.\n"
-            "- Do not change the person's identity, expression, or any other aspect of the scene.\n"
-            "Output: one photorealistic edited image only."
+            "You are a photo editor performing a clothing swap on an existing photograph.\n\n"
+            "IMAGE 1 is the original photo. IMAGE 2 is the clothing reference.\n\n"
+            "Your task: take IMAGE 1 and edit ONLY the clothing — swap out what the person is wearing "
+            "for the garment shown in IMAGE 2. Every other pixel of the photo must remain identical.\n\n"
+            "WHAT MUST NOT CHANGE (copy exactly from IMAGE 1):\n"
+            "- The person's face, skin tone, hair, body shape, pose, and proportions\n"
+            "- The background, room, lighting, shadows, and camera angle\n"
+            "- All accessories not covered by the new garment (glasses, jewelry, shoes, bags)\n"
+            "- The person's makeup and expression\n\n"
+            "WHAT TO CHANGE:\n"
+            "- Replace the clothing with the garment from IMAGE 2, fitted naturally to the person's body\n"
+            "- Match the garment's exact color, pattern, texture, cut, and coverage from IMAGE 2\n"
+            "- If IMAGE 2 shows only a top: keep the original bottoms unchanged\n"
+            "- If IMAGE 2 shows only a bottom: keep the original top unchanged\n"
+            "- Adjust sleeve/skin coverage to match the new garment exactly\n\n"
+            "IMPORTANT:\n"
+            "- This is a photo edit, NOT a new image generation. The output must look like IMAGE 1 "
+            "with only the clothing region altered in-place.\n"
+            "- Do not replace the person. Do not generate a new person. The same individual from "
+            "IMAGE 1 must appear in the output, in the same pose, same location, same everything.\n"
+            "- If IMAGE 2 shows another person wearing the clothes, extract only the garment — "
+            "ignore that person's face, hair, and body entirely.\n\n"
+            "Output: the edited version of IMAGE 1 with only the clothing changed. Nothing else."
         )
+
+        base_image_bytes, base_mime = self._normalize_image(base_image_bytes)
+        garment_image_bytes, garment_mime = self._normalize_image(garment_image_bytes)
 
         client = genai.Client(api_key=self.api_key)
         try:
@@ -396,8 +431,8 @@ class NanoBananaProcessor:
                 model=self.model,
                 contents=[
                     prompt,
-                    types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
-                    types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
+                    types.Part.from_bytes(data=base_image_bytes, mime_type=base_mime),
+                    types.Part.from_bytes(data=garment_image_bytes, mime_type=garment_mime),
                 ],
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE", "TEXT"],
