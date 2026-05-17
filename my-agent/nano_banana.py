@@ -375,10 +375,18 @@ class NanoBananaProcessor:
             )
 
         prompt = (
-            "Virtual mirror try-on edit. Preserve the exact same person, face, pose, body proportions, camera "
-            "angle, lighting, and full background from image 1. Replace only the worn clothing on the person so "
-            "it matches the garment from image 2 with realistic fit and texture. Do not alter identity or scene. "
-            "Return one photorealistic edited image."
+            "You are a virtual fitting room. You will receive two images:\n"
+            "- IMAGE 1 (person): a photo of a person standing in front of a mirror or camera.\n"
+            "- IMAGE 2 (garment): a clothing item to try on.\n\n"
+            "Task: Generate a single photorealistic image of the person from IMAGE 1 wearing the garment from IMAGE 2.\n\n"
+            "Rules:\n"
+            "- Preserve the person's exact face, skin tone, hair, body shape, pose, and proportions from IMAGE 1.\n"
+            "- Preserve the original background, lighting, and camera angle from IMAGE 1.\n"
+            "- Keep all accessories (shoes, bags, jewelry) from IMAGE 1 unless hidden by the new garment.\n"
+            "- Replace ONLY the clothing with the garment from IMAGE 2, fitting it naturally to the person's body.\n"
+            "- Match the garment's color, pattern, texture, and style exactly as shown in IMAGE 2.\n"
+            "- Do not change the person's identity, expression, or any other aspect of the scene.\n"
+            "Output: one photorealistic edited image only."
         )
 
         client = genai.Client(api_key=self.api_key)
