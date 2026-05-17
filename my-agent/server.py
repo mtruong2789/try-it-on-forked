@@ -23,8 +23,16 @@ base_dir = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=base_dir.parent / ".env", override=False)
 load_dotenv(dotenv_path=base_dir / ".env", override=True)
 
-if os.getenv("serper_API") and not os.getenv("GOOGLE_API_KEY"):
-    os.environ["GOOGLE_API_KEY"] = os.getenv("serper_API", "")
+api_key_source = "GOOGLE_API_KEY" if os.getenv("GOOGLE_API_KEY") else ""
+if not os.getenv("GOOGLE_API_KEY"):
+    for key_name in ("GEMINI_API_KEY", "GOOGLE_GENAI_API_KEY", "serper_API"):
+        key_value = os.getenv(key_name, "")
+        if key_value:
+            os.environ["GOOGLE_API_KEY"] = key_value
+            api_key_source = key_name
+            break
+if api_key_source:
+    os.environ["GOOGLE_API_KEY_SOURCE"] = api_key_source
 
 output_dir = base_dir / "outputs"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +77,7 @@ async def health():
     return {
         "status": "ok",
         "api_key_set": bool(api_key),
+        "api_key_source": os.getenv("GOOGLE_API_KEY_SOURCE", "unset"),
         "model": os.getenv("NANO_BANANA_MODEL", "gemini-2.5-flash-preview-05-20"),
     }
 

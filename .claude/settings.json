@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pgrep -f 'uvicorn server:app' > /dev/null || (cd /Users/misatruong/Downloads/try-it-on-forked && nohup npm run dev > /tmp/try-it-on.log 2>&1 &)",
+            "async": true,
+            "statusMessage": "Starting dev servers..."
+          }
+        ]
+      }
+    ]
+  }
+}
