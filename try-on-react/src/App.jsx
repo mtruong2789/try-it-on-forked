@@ -423,6 +423,27 @@ export default function App() {
     await callDirectApi(poseImage, outfitImage);
   }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent, callDirectApi]);
 
+  // ── Save result photo ─────────────────────────────────────────────────────
+
+  const handleSavePhoto = useCallback(async () => {
+    if (!resultUrl) return;
+    try {
+      let blobUrl = resultUrl;
+      if (!resultUrl.startsWith('data:')) {
+        const res = await fetch(resultUrl);
+        const blob = await res.blob();
+        blobUrl = URL.createObjectURL(blob);
+      }
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `tryon-${Date.now()}.png`;
+      a.click();
+      if (!resultUrl.startsWith('data:')) URL.revokeObjectURL(blobUrl);
+    } catch {
+      setCameraError('Could not save photo. Try right-clicking the image and saving manually.');
+    }
+  }, [resultUrl]);
+
   // ── Computed labels ───────────────────────────────────────────────────────
 
   const streamLabel =
@@ -532,9 +553,14 @@ export default function App() {
                 </button>
 
                 {showResult && (
-                  <button className="btn" onClick={() => { setShowResult(false); setResultUrl(''); setBasePhotoUrl(''); setStatus('Mirror ready. Take a new photo to try on another outfit.'); }}>
-                    Try Again
-                  </button>
+                  <>
+                    <button className="btn btn-save" onClick={handleSavePhoto}>
+                      💾 Save Photo
+                    </button>
+                    <button className="btn" onClick={() => { setShowResult(false); setResultUrl(''); setBasePhotoUrl(''); setStatus('Mirror ready. Take a new photo to try on another outfit.'); }}>
+                      Try Again
+                    </button>
+                  </>
                 )}
               </div>
 
