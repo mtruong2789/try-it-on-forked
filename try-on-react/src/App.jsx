@@ -45,23 +45,27 @@ export default function App() {
   // Outfit state
   const [selectedPresetId, setSelectedPresetId] = useState(null);
   const [customOutfitUrl, setCustomOutfitUrl] = useState('');
+  const [garmentPrompt, setGarmentPrompt] = useState('');
+  const [isSearchingGarment, setIsSearchingGarment] = useState(false);
+  const [garmentSource, setGarmentSource] = useState(null);
+  const [garmentDiagnostics, setGarmentDiagnostics] = useState(null);
 
   // Generation / result
   const [resultUrl, setResultUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [showResult, setShowResult] = useState(false);
-  const [status, setStatus] = useState('Start the mirror, take a photo of yourself, then upload the outfit you want to wear.');
+  const [status, setStatus] = useState('Start the mirror, take a photo of yourself, then describe the outfit you want to wear.');
 
   // Backend
   const [backendStatus, setBackendStatus] = useState('checking');
 
   // GetStream
-  const [streamStatus, setStreamStatus] = useState('idle');
+  const [streamStatus, setStreamStatus] = useState('connecting');
   const streamCallRef = useRef(null);
   const streamClientRef = useRef(null);
+  const streamCameraUnsubRef = useRef(null);
 
   const videoRef = useRef(null);
-  const outfitInputRef = useRef(null);
   const generateTimeoutRef = useRef(null);
 
   // Derived
@@ -97,8 +101,6 @@ export default function App() {
     const callType = import.meta.env.VITE_STREAM_CALL_TYPE || 'default';
     const callId = import.meta.env.VITE_STREAM_CALL_ID || 'tryon-demo';
     const userId = import.meta.env.VITE_STREAM_USER_ID || 'demo-user';
-
-    setStreamStatus('connecting');
 
     // Fetch token + api key from the backend — no need to put them in .env
     let cancelled = false;
@@ -164,6 +166,11 @@ export default function App() {
   // ── Mirror on/off — uses GetStream camera when connected, native fallback ─
 
   const stopMirror = useCallback(async () => {
+    if (streamCameraUnsubRef.current) {
+      streamCameraUnsubRef.current();
+      streamCameraUnsubRef.current = null;
+    }
+
     const call = streamCallRef.current;
     if (call && streamStatus === 'connected') {
       try { await call.camera.disable(); } catch { /* best effort */ }
@@ -197,7 +204,7 @@ export default function App() {
           }
         });
         // Store unsubscribe for cleanup
-        stopMirror._streamUnsub = sub?.unsubscribe?.bind(sub);
+        streamCameraUnsubRef.current = sub?.unsubscribe?.bind(sub) || null;
       } else {
         // Fallback: native getUserMedia
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -229,11 +236,10 @@ export default function App() {
         setCameraError(`Camera error: ${err?.message || code}`);
       }
     }
-  }, [streamStatus, stopMirror]);
+  }, [streamStatus]);
 
   const toggleMirror = useCallback(async () => {
     if (isMirrorOn) {
-      if (stopMirror._streamUnsub) { stopMirror._streamUnsub(); stopMirror._streamUnsub = null; }
       await stopMirror();
       setStatus('Mirror off.');
     } else {
@@ -263,31 +269,55 @@ export default function App() {
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     setBasePhotoUrl(dataUrl);
     setCameraError('');
-    setStatus(activeOutfitUrl ? 'Photo taken! Click Generate Try-On.' : 'Photo taken! Now upload or select the outfit you want to wear.');
+    setStatus(activeOutfitUrl ? 'Photo taken! Click Generate Try-On.' : 'Photo taken! Now describe or select the outfit you want to wear.');
   }, [isMirrorOn, activeOutfitUrl]);
 
-  // ── Outfit upload ─────────────────────────────────────────────────────────
+  // ── Outfit search / selection ─────────────────────────────────────────────
 
-  const handleOutfitUpload = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
-        setCustomOutfitUrl(reader.result);
-        setSelectedPresetId(null);
-        setCameraError('');
-        setStatus(basePhotoUrl ? 'Outfit ready! Click Generate Try-On.' : 'Outfit ready! Now take a photo of yourself in the mirror.');
-      } else {
-        setCameraError('Please upload a valid image file.');
+  const handleGarmentSearch = useCallback(async () => {
+    const prompt = garmentPrompt.trim();
+    if (!prompt || isSearchingGarment) return;
+
+    setIsSearchingGarment(true);
+    setCameraError('');
+    setGarmentDiagnostics(null);
+    setStatus('Searching web stores for matching outfit...');
+
+    try {
+      const res = await fetch('/api/search-garment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== 'success' || !data.image_url) {
+        if (data?.debug) setGarmentDiagnostics(data.debug);
+        throw new Error(data.message || `Search failed (${res.status})`);
       }
-    };
-    reader.readAsDataURL(file);
-  }, [basePhotoUrl]);
+
+      setCustomOutfitUrl(data.image_url);
+      setSelectedPresetId(null);
+      setGarmentSource({
+        title: data.title || 'Product match',
+        productUrl: data.product_url || '',
+        domain: data.domain || '',
+      });
+      setGarmentDiagnostics(data.debug || null);
+      setStatus(basePhotoUrl ? 'Outfit found! Click Generate Try-On.' : 'Outfit found! Now take a photo of yourself in the mirror.');
+    } catch (err) {
+      setCameraError(err?.message || 'Could not find a product image. Try a more specific prompt.');
+      setStatus('Garment search failed.');
+    } finally {
+      setIsSearchingGarment(false);
+    }
+  }, [garmentPrompt, isSearchingGarment, basePhotoUrl]);
 
   const handlePresetSelect = useCallback((id) => {
     setSelectedPresetId(id);
     setCustomOutfitUrl('');
+    setGarmentSource(null);
+    setGarmentDiagnostics(null);
     setStatus(basePhotoUrl ? 'Outfit selected! Click Generate Try-On.' : 'Outfit selected! Now take a photo of yourself in the mirror.');
   }, [basePhotoUrl]);
 
@@ -343,42 +373,6 @@ export default function App() {
     }
   }, [streamStatus]);
 
-  // ── Generate try-on ───────────────────────────────────────────────────────
-
-  const handleGenerate = useCallback(async () => {
-    if (!canGenerate) return;
-
-    setIsGenerating(true);
-    setResultUrl('');
-    setShowResult(false);
-    setCameraError('');
-
-    const poseImage = await compressDataUrl(basePhotoUrl);
-    const outfitImage = activeOutfitUrl;
-
-    // Try GetStream path first (Python agent via main.py receives this)
-    const sentViaStream = await sendStreamEvent('generate_tryon', {
-      request_id: `tryon-${Date.now()}`,
-      provider: 'nanobanana',
-      image_url: outfitImage,
-      pose_image_url: poseImage,
-    });
-
-    if (sentViaStream) {
-      setStatus('Request sent via GetStream — waiting for backend agent…');
-      // Fall back to direct API after 30 s if no mirror_update event arrives
-      generateTimeoutRef.current = setTimeout(async () => {
-        setStatus('No Stream response. Trying direct API…');
-        await callDirectApi(poseImage, outfitImage);
-      }, 30_000);
-      return;
-    }
-
-    // Direct API path (server.py)
-    setStatus('Sending to Gemini — this takes 10–30 seconds…');
-    await callDirectApi(poseImage, outfitImage);
-  }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent]);
-
   const callDirectApi = useCallback(async (poseImage, outfitImage) => {
     try {
       const res = await fetch('/api/tryon', {
@@ -420,6 +414,42 @@ export default function App() {
       generateTimeoutRef.current = null;
     }
   }, []);
+
+  // ── Generate try-on ───────────────────────────────────────────────────────
+
+  const handleGenerate = useCallback(async () => {
+    if (!canGenerate) return;
+
+    setIsGenerating(true);
+    setResultUrl('');
+    setShowResult(false);
+    setCameraError('');
+
+    const poseImage = await compressDataUrl(basePhotoUrl);
+    const outfitImage = activeOutfitUrl;
+
+    // Try GetStream path first (Python agent via main.py receives this)
+    const sentViaStream = await sendStreamEvent('generate_tryon', {
+      request_id: `tryon-${Date.now()}`,
+      provider: 'nanobanana',
+      image_url: outfitImage,
+      pose_image_url: poseImage,
+    });
+
+    if (sentViaStream) {
+      setStatus('Request sent via GetStream — waiting for backend agent…');
+      // Fall back to direct API after 30 s if no mirror_update event arrives
+      generateTimeoutRef.current = setTimeout(async () => {
+        setStatus('No Stream response. Trying direct API…');
+        await callDirectApi(poseImage, outfitImage);
+      }, 30_000);
+      return;
+    }
+
+    // Direct API path (server.py)
+    setStatus('Sending to Gemini — this takes 10–30 seconds…');
+    await callDirectApi(poseImage, outfitImage);
+  }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent, callDirectApi]);
 
   // ── Computed labels ───────────────────────────────────────────────────────
 
@@ -550,9 +580,6 @@ export default function App() {
             <button className="pose-strip-retake" onClick={handleTakePhoto}>Retake</button>
           </div>
         )}
-
-        {/* Hidden file input for outfit */}
-        <input ref={outfitInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOutfitUpload} />
       </main>
 
       {/* ── RIGHT: Sidebar ── */}
@@ -577,18 +604,69 @@ export default function App() {
             </div>
           </div>
 
-          {/* Outfit upload */}
+          {/* Outfit prompt search */}
           <section style={{ marginTop: '24px' }}>
-            <h2>Upload Outfit Photo</h2>
-            <p className="section-hint">Photo of the clothing item you want to try on</p>
-            <button className="btn upload-outfit-btn" onClick={() => outfitInputRef.current?.click()}>
-              {customOutfitUrl ? 'Change Outfit' : '+ Upload Outfit Photo'}
-            </button>
+            <h2>Describe Outfit</h2>
+            <p className="section-hint">Describe a clothing item to find a real product photo from a web store</p>
+            <div className="garment-prompt-row">
+              <input
+                className="garment-prompt-input"
+                type="text"
+                placeholder="e.g. black oversized leather bomber jacket"
+                value={garmentPrompt}
+                onChange={(e) => setGarmentPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleGarmentSearch();
+                }}
+              />
+              <button className="btn garment-search-btn" onClick={handleGarmentSearch} disabled={isSearchingGarment || !garmentPrompt.trim()}>
+                {isSearchingGarment ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
             {customOutfitUrl && (
               <div className="uploaded-garment-preview">
-                <img src={customOutfitUrl} alt="Your outfit" />
-                <button className="clear-btn" onClick={() => { setCustomOutfitUrl(''); setSelectedPresetId(null); }}>✕</button>
+                <img
+                  src={customOutfitUrl}
+                  alt="Found outfit"
+                  onError={() => {
+                    setCustomOutfitUrl('');
+                    setCameraError('The selected product image could not be loaded. Please search again with a more specific prompt.');
+                    setStatus('Garment preview failed. Search for another outfit.');
+                  }}
+                />
+                <button className="clear-btn" onClick={() => { setCustomOutfitUrl(''); setSelectedPresetId(null); setGarmentSource(null); setGarmentDiagnostics(null); }}>✕</button>
+                {garmentSource?.productUrl && (
+                  <a
+                    className="garment-source-link"
+                    href={garmentSource.productUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={garmentSource.title || garmentSource.productUrl}
+                  >
+                    {garmentSource.domain ? `View source: ${garmentSource.domain}` : 'View source product page'}
+                  </a>
+                )}
               </div>
+            )}
+
+            {garmentDiagnostics && (
+              <details className="garment-diagnostics">
+                <summary>Search diagnostics</summary>
+                <p className="garment-diagnostics-meta">
+                  Candidates: {garmentDiagnostics.candidate_count ?? 0}
+                  {typeof garmentDiagnostics.selected_index === 'number' ? ` · Selected: #${garmentDiagnostics.selected_index + 1}` : ''}
+                </p>
+                {Array.isArray(garmentDiagnostics.attempted_candidates) && garmentDiagnostics.attempted_candidates.length > 0 && (
+                  <ul className="garment-diagnostics-list">
+                    {garmentDiagnostics.attempted_candidates.map((item) => (
+                      <li key={`${item.attempt}-${item.domain || 'unknown'}`}>
+                        #{item.attempt} {item.domain || 'unknown domain'} — {item.cached ? 'cached' : 'failed'}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </details>
             )}
           </section>
 

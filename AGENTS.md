@@ -4,60 +4,50 @@ This file provides guidance to agents (i.e., ADAL) when working with code in thi
 
 ## Repository Scope (important)
 
-- The actual app code lives in `try-on-react/`.
-- Repository root currently acts as a container; most engineering commands must run from `try-on-react/`.
-- If a command fails at root, retry with:
-  ```bash
-  cd try-on-react
-  ```
+- The actual frontend app code lives in `try-on-react/`.
+- Repository root now also contains workspace orchestration scripts (`package.json`) to start all services together.
+- Use root `npm run dev` for multi-service startup; use `try-on-react/` for frontend-only commands.
 
 ---
 
 ## Quick Start (under 30 seconds)
 
+### Full stack (recommended)
+```bash
+npm install
+npm run dev
+```
+- Run from repository root.
+- Starts all three services: React (`try-on-react`), Flask (`try-on-flask/backend.py`), and FastAPI agent (`my-agent/server.py`).
+
+### Frontend only
 ```bash
 cd try-on-react
 npm install
 npm run dev
 ```
-
-Open the local Vite URL shown in terminal (typically `http://localhost:5173`).
+Open the local Vite URL shown in terminal (typically `http://localhost:5173`, or next available port).
 
 ---
 
 ## Essential Commands
 
-Run all commands from `try-on-react/` unless explicitly noted.
-
-### Install dependencies
-```bash
-npm install
-```
-- Uses `package-lock.json` (npm, not pnpm/yarn).
-
-### Development server
+### Workspace root (multi-service)
 ```bash
 npm run dev
 ```
-- Starts Vite dev server with HMR.
+- Launches React + Flask + FastAPI together via `concurrently`.
 
-### Production build
+### Frontend (`try-on-react/`)
 ```bash
+npm install
+npm run dev
 npm run build
-```
-- Outputs static assets to `try-on-react/dist/`.
-
-### Preview production build
-```bash
 npm run preview
-```
-- Serves built output locally for smoke testing.
-
-### Lint
-```bash
 npm run lint
 ```
-- Uses ESLint with React hooks/react-refresh rules configured in `eslint.config.js`.
+- Uses `package-lock.json` (npm, not pnpm/yarn).
+- ESLint rules configured in `try-on-react/eslint.config.js`.
 
 ---
 
@@ -71,9 +61,9 @@ npm run lint
 
 ## Critical Gotchas
 
-1. **Working directory trap**
-   - Running `npm run dev/build/lint/preview` at repo root will fail (no root package scripts).
-   - Use `try-on-react/`.
+1. **Working directory + startup mode**
+   - Root `npm run dev` is now valid and starts React + Flask + FastAPI together.
+   - For frontend-only scripts (`build/lint/preview`), run from `try-on-react/`.
 
 2. **Camera permission behavior**
    - App uses `navigator.mediaDevices.getUserMedia`.

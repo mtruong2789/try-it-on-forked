@@ -1,0 +1,11 @@
+{
+  "name": "try-it-on-forked-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently -k -n react,flask,agent -c cyan,magenta,yellow \"npm --prefix try-on-react run dev\" \"python3 try-on-flask/backend.py\" \"cd my-agent && (uv run uvicorn server:app --port 8000 || python3 -m uvicorn server:app --port 8000)\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

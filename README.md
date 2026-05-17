@@ -2,43 +2,61 @@
 
 ## How it works
 
-1. Open your webcam (or upload a selfie)
-2. Pick or upload an outfit photo
+1. Start the mirror and capture your photo
+2. Describe an outfit to search web stores (or choose one from the catalog)
 3. Click **Generate Try-On** — Gemini edits your photo to show you wearing the outfit
 
 ---
 
 ## Setup & Run
 
-### 1. Python backend (FastAPI + Gemini)
+### 1) Configure environment variables
 
-```bash
-cd my-agent
-```
+Create a `.env` at repo root (or `my-agent/.env`) with:
 
-Make sure `.env` has your Google API key:
-```
-GOOGLE_API_KEY=your_key_here
-# Optional model override (default: gemini-2.5-flash-preview-05-20):
+```env
+GOOGLE_API_KEY=your_google_key
+serper_API=your_serper_key
+groq_API=your_groq_key
+
+# Optional model override (default maps to gemini-2.5-flash-image)
 # NANO_BANANA_MODEL=gemini-2.5-flash-preview-05-20
+
+# Optional Stream setup
+# STREAM_API_KEY=...
+# STREAM_API_SECRET=...
 ```
 
-Install and start the server:
-```bash
-uv run uvicorn server:app --reload --port 8000
-```
+### 2) Start everything with one command (recommended)
 
-The server will be at `http://localhost:8000`. Check `http://localhost:8000/health` to confirm.
-
-### 2. React frontend
+From repository root:
 
 ```bash
-cd try-on-react
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+This starts all three services together:
+- React frontend (`try-on-react`) via Vite
+- Flask backend (`try-on-flask/backend.py`)
+- FastAPI agent (`my-agent/server.py` on port `8000`)
+
+> If Vite reports port 5173 is busy, it will auto-pick the next open port.
+
+### 3) Manual startup (optional)
+
+If you prefer separate terminals:
+
+```bash
+# Terminal 1
+cd try-on-react && npm run dev
+
+# Terminal 2
+cd try-on-flask && python3 backend.py
+
+# Terminal 3
+cd my-agent && (uv run uvicorn server:app --port 8000 || python3 -m uvicorn server:app --port 8000)
+```
 
 ---
 

@@ -720,21 +720,91 @@ body,
   transform: scale(1.06);
 }
 
-/* Upload outfit button */
-.upload-outfit-btn {
-  width: 100%;
-  border: 2px dashed rgba(99, 102, 241, 0.4) !important;
-  background: rgba(99, 102, 241, 0.06) !important;
-  color: #a5b4fc !important;
-  text-align: center;
-  font-size: 0.95rem;
-  padding: 18px !important;
+/* Garment prompt search */
+.garment-prompt-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
 }
 
-.upload-outfit-btn:hover {
-  border-color: rgba(99, 102, 241, 0.7) !important;
-  background: rgba(99, 102, 241, 0.12) !important;
-  color: #c7d2fe !important;
+.garment-prompt-input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(15, 23, 42, 0.65);
+  color: #e2e8f0;
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.garment-prompt-input:focus {
+  border-color: rgba(129, 140, 248, 0.7);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.garment-search-btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 120px;
+}
+
+.garment-source-link {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: block;
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #bfdbfe;
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 8px;
+  padding: 6px 8px;
+  line-height: 1.25;
+  backdrop-filter: blur(4px);
+}
+
+.garment-source-link:hover {
+  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.6);
+}
+
+.garment-diagnostics {
+  margin-top: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 8px 10px;
+}
+
+.garment-diagnostics summary {
+  cursor: pointer;
+  color: #93c5fd;
+  font-size: 0.78rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.garment-diagnostics summary::-webkit-details-marker {
+  display: none;
+}
+
+.garment-diagnostics-meta {
+  margin: 8px 0 6px 0;
+  color: #94a3b8;
+  font-size: 0.74rem;
+}
+
+.garment-diagnostics-list {
+  margin: 0;
+  padding-left: 16px;
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
 
 /* Uploaded garment preview */
