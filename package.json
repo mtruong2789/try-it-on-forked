@@ -1,0 +1,9 @@
+{
+  "name": "try-it-on",
+  "scripts": {
+    "dev": "concurrently --names \"agent,flask,react\" --prefix-colors \"cyan,yellow,magenta\" \"cd my-agent && uv run uvicorn server:app --port 8000\" \"cd try-on-flask && python backend.py\" \"cd try-on-react && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
