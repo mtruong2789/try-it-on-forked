@@ -56,13 +56,14 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState('checking');
 
   // GetStream
-  const [streamStatus, setStreamStatus] = useState('idle');
+  const [streamStatus, setStreamStatus] = useState('connecting');
   const streamCallRef = useRef(null);
   const streamClientRef = useRef(null);
 
   const videoRef = useRef(null);
   const outfitInputRef = useRef(null);
   const generateTimeoutRef = useRef(null);
+  const streamUnsubRef = useRef(null);
 
   // Derived
   const activeOutfitUrl =
@@ -97,8 +98,6 @@ export default function App() {
     const callType = import.meta.env.VITE_STREAM_CALL_TYPE || 'default';
     const callId = import.meta.env.VITE_STREAM_CALL_ID || 'tryon-demo';
     const userId = import.meta.env.VITE_STREAM_USER_ID || 'demo-user';
-
-    setStreamStatus('connecting');
 
     // Fetch token + api key from the backend — no need to put them in .env
     let cancelled = false;
@@ -164,6 +163,10 @@ export default function App() {
   // ── Mirror on/off — uses GetStream camera when connected, native fallback ─
 
   const stopMirror = useCallback(async () => {
+    if (streamUnsubRef.current) {
+      streamUnsubRef.current();
+      streamUnsubRef.current = null;
+    }
     const call = streamCallRef.current;
     if (call && streamStatus === 'connected') {
       try { await call.camera.disable(); } catch { /* best effort */ }
@@ -197,7 +200,7 @@ export default function App() {
           }
         });
         // Store unsubscribe for cleanup
-        stopMirror._streamUnsub = sub?.unsubscribe?.bind(sub);
+        streamUnsubRef.current = sub?.unsubscribe?.bind(sub) || null;
       } else {
         // Fallback: native getUserMedia
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -229,11 +232,10 @@ export default function App() {
         setCameraError(`Camera error: ${err?.message || code}`);
       }
     }
-  }, [streamStatus, stopMirror]);
+  }, [streamStatus]);
 
   const toggleMirror = useCallback(async () => {
     if (isMirrorOn) {
-      if (stopMirror._streamUnsub) { stopMirror._streamUnsub(); stopMirror._streamUnsub = null; }
       await stopMirror();
       setStatus('Mirror off.');
     } else {
@@ -345,40 +347,6 @@ export default function App() {
 
   // ── Generate try-on ───────────────────────────────────────────────────────
 
-  const handleGenerate = useCallback(async () => {
-    if (!canGenerate) return;
-
-    setIsGenerating(true);
-    setResultUrl('');
-    setShowResult(false);
-    setCameraError('');
-
-    const poseImage = await compressDataUrl(basePhotoUrl);
-    const outfitImage = activeOutfitUrl;
-
-    // Try GetStream path first (Python agent via main.py receives this)
-    const sentViaStream = await sendStreamEvent('generate_tryon', {
-      request_id: `tryon-${Date.now()}`,
-      provider: 'nanobanana',
-      image_url: outfitImage,
-      pose_image_url: poseImage,
-    });
-
-    if (sentViaStream) {
-      setStatus('Request sent via GetStream — waiting for backend agent…');
-      // Fall back to direct API after 30 s if no mirror_update event arrives
-      generateTimeoutRef.current = setTimeout(async () => {
-        setStatus('No Stream response. Trying direct API…');
-        await callDirectApi(poseImage, outfitImage);
-      }, 30_000);
-      return;
-    }
-
-    // Direct API path (server.py)
-    setStatus('Sending to Gemini — this takes 10–30 seconds…');
-    await callDirectApi(poseImage, outfitImage);
-  }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent]);
-
   const callDirectApi = useCallback(async (poseImage, outfitImage) => {
     try {
       const res = await fetch('/api/tryon', {
@@ -420,6 +388,40 @@ export default function App() {
       generateTimeoutRef.current = null;
     }
   }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!canGenerate) return;
+
+    setIsGenerating(true);
+    setResultUrl('');
+    setShowResult(false);
+    setCameraError('');
+
+    const poseImage = await compressDataUrl(basePhotoUrl);
+    const outfitImage = activeOutfitUrl;
+
+    // Try GetStream path first (Python agent via main.py receives this)
+    const sentViaStream = await sendStreamEvent('generate_tryon', {
+      request_id: `tryon-${Date.now()}`,
+      provider: 'nanobanana',
+      image_url: outfitImage,
+      pose_image_url: poseImage,
+    });
+
+    if (sentViaStream) {
+      setStatus('Request sent via GetStream — waiting for backend agent…');
+      // Fall back to direct API after 30 s if no mirror_update event arrives
+      generateTimeoutRef.current = setTimeout(async () => {
+        setStatus('No Stream response. Trying direct API…');
+        await callDirectApi(poseImage, outfitImage);
+      }, 30_000);
+      return;
+    }
+
+    // Direct API path (server.py)
+    setStatus('Sending to Gemini — this takes 10–30 seconds…');
+    await callDirectApi(poseImage, outfitImage);
+  }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent, callDirectApi]);
 
   // ── Computed labels ───────────────────────────────────────────────────────
 

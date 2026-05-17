@@ -10,20 +10,12 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/api': {
-          target: 'http://localhost:8080',
+          target: 'http://localhost:8000',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         },
         '/outputs': {
-          target: 'http://localhost:8080',
-          changeOrigin: true,
-        },
-        '/health': {
-          target: 'http://localhost:8080',
-          changeOrigin: true,
-        },
-        '/token': {
-          target: 'http://localhost:8080',
+          target: 'http://localhost:8000',
           changeOrigin: true,
         },
       },
