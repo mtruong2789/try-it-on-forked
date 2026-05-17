@@ -1,48 +1,93 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StreamVideoClient } from '@stream-io/video-react-sdk';
+import BrowsePage from './BrowsePage';
+import ItemDetailPage from './ItemDetailPage';
+import CountdownPage from './CountdownPage';
+import CapturePage from './CapturePage';
+import ReviewCapturePage from './ReviewCapturePage';
+import GeneratingPage from './GeneratingPage';
+import ResultPage from './ResultPage';
+import { useIdleTimeout } from './useIdleTimeout';
 import './App.css';
 
-const PRESET_GARMENTS = [
-  {
-    id: 'g1',
-    name: 'Cyberpunk Bomber',
-    category: 'Outerwear',
-    imageUrl: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400',
-  },
-  {
-    id: 'g2',
-    name: 'Classic Denim Jacket',
-    category: 'Outerwear',
-    imageUrl: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=400',
-  },
-  {
-    id: 'g3',
-    name: 'Oversized Linen Shirt',
-    category: 'Tops',
-    imageUrl: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400',
-  },
-  {
-    id: 'g4',
-    name: 'Minimalist Black Tee',
-    category: 'Tops',
-    imageUrl: 'https://images.unsplash.com/photo-1527719327859-c6ce80353573?w=400',
-  },
-];
+// ── Page constants ─────────────────────────────────────────────────────────────
+const PAGE = {
+  HOME:        'home',
+  BROWSE:      'browse',
+  ITEM_DETAIL: 'item_detail',
+  READY:       'ready',
+  COUNTDOWN:   'countdown',
+  CAPTURE:     'capture',      // 5a — flash effect
+  REVIEW:      'review',       // 5b — review captured photo
+  RESULT:      'result',       // 6  — generating (live progress)
+  VIEW_RESULT: 'view_result',  // 7  — final try-on result (spec coming)
+};
 
-const StreamLogo = () => (
-  <svg height="18" viewBox="0 0 120 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Stream">
-    <path d="M10.5 4L4 14l6.5 10h13L30 14 23.5 4h-13z" fill="#005fff" />
-    <text x="36" y="20" fontFamily="system-ui,sans-serif" fontWeight="700" fontSize="16" fill="#fff">Stream</text>
-  </svg>
-);
 
+// ── Upload Popup ───────────────────────────────────────────────────────────────
+function UploadPopup({ customOutfitUrl, outfitInputRef, onCancel, onConfirm, onClear }) {
+  return (
+    <div className="popup-overlay">
+      <div className="popup-card">
+        <h2 className="popup-title">Upload Outfit Photo</h2>
+        <p className="popup-hint">Photo of the clothing item you want to try on</p>
+
+        <button
+          className="upload-outfit-btn"
+          onClick={() => outfitInputRef.current?.click()}
+        >
+          {customOutfitUrl ? 'Change Outfit' : '+ Upload Outfit Photo'}
+        </button>
+
+        {customOutfitUrl && (
+          <div className="uploaded-garment-preview">
+            <img src={customOutfitUrl} alt="Your outfit" />
+            <button className="clear-btn" onClick={onClear}>✕</button>
+          </div>
+        )}
+
+        <div className="popup-actions">
+          <button className="popup-cancel-btn" onClick={onCancel}>Cancel</button>
+          {customOutfitUrl && (
+            <button className="popup-confirm-btn" onClick={onConfirm}>
+              Continue →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Idle "Are you still there?" popup ─────────────────────────────────────────
+function IdlePopup({ countdown, onYes, onNo }) {
+  return (
+    <div className="idle-overlay">
+      <div className="idle-card">
+        <p className="idle-question">Are you still there?</p>
+        <p className="idle-countdown">{countdown}</p>
+        <div className="idle-actions">
+          <button className="idle-btn idle-btn-yes" onClick={onYes}>Yes</button>
+          <button className="idle-btn idle-btn-no"  onClick={onNo}>No</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────────
 export default function App() {
-  // Mirror / camera state
+  // Navigation
+  const [currentPage, setCurrentPage] = useState(PAGE.HOME);
+  const [showUploadPopup, setShowUploadPopup] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // Mirror / camera
   const [isMirrorOn, setIsMirrorOn] = useState(false);
-  const [basePhotoUrl, setBasePhotoUrl] = useState('');   // captured frame of the user
+  const [basePhotoUrl, setBasePhotoUrl] = useState('');
   const [cameraError, setCameraError] = useState('');
 
-  // Outfit state
+  // Outfit
   const [selectedPresetId, setSelectedPresetId] = useState(null);
   const [customOutfitUrl, setCustomOutfitUrl] = useState('');
 
@@ -50,11 +95,15 @@ export default function App() {
   const [resultUrl, setResultUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [showResult, setShowResult] = useState(false);
-  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
-  const [status, setStatus] = useState('Start the mirror, take a photo of yourself, then upload the outfit you want to wear.');
+  const [status, setStatus] = useState('');
 
   // Backend
   const [backendStatus, setBackendStatus] = useState('checking');
+
+  // Idle popup
+  const [showIdlePopup, setShowIdlePopup]     = useState(false);
+  const [idleCountdown, setIdleCountdown]     = useState(5);
+  const idleCountdownRef = useRef(null);
 
   // GetStream
   const [streamStatus, setStreamStatus] = useState('connecting');
@@ -65,25 +114,21 @@ export default function App() {
   const outfitInputRef = useRef(null);
   const generateTimeoutRef = useRef(null);
   const streamUnsubRef = useRef(null);
+  const autoStartedRef = useRef(false);
 
-  // Derived
-  const activeOutfitUrl =
-    customOutfitUrl ||
-    (selectedPresetId ? PRESET_GARMENTS.find((g) => g.id === selectedPresetId)?.imageUrl : '');
+  const activeOutfitUrl = customOutfitUrl;
   const canGenerate = Boolean(activeOutfitUrl) && Boolean(basePhotoUrl) && !isGenerating;
 
-  // ── Mirror update handler (called from GetStream event) ───────────────────
-
+  // ── GetStream mirror_update handler ──────────────────────────────────────────
   const handleMirrorUpdateEvent = useCallback((payload) => {
     const imageUrl = payload?.image_url;
     const errMsg = payload?.status !== 'success' ? (payload?.message || payload?.reason) : '';
-
     if (typeof imageUrl === 'string' && imageUrl.trim()) {
       if (generateTimeoutRef.current) { clearTimeout(generateTimeoutRef.current); generateTimeoutRef.current = null; }
       setResultUrl(imageUrl);
       setShowResult(true);
       setIsGenerating(false);
-      setStatus('Try-on ready! Showing result.');
+      setStatus('Try-on ready!');
     }
     if (errMsg) {
       if (generateTimeoutRef.current) { clearTimeout(generateTimeoutRef.current); generateTimeoutRef.current = null; }
@@ -93,32 +138,21 @@ export default function App() {
     }
   }, []);
 
-  // ── GetStream init — video call replaces the webcam ───────────────────────
-
+  // ── GetStream init ────────────────────────────────────────────────────────────
   useEffect(() => {
     const callType = import.meta.env.VITE_STREAM_CALL_TYPE || 'default';
     const callId = import.meta.env.VITE_STREAM_CALL_ID || 'tryon-demo';
     const userId = import.meta.env.VITE_STREAM_USER_ID || 'demo-user';
 
-    // Fetch token + api key from the backend — no need to put them in .env
     let cancelled = false;
     fetch(`/api/token?user_id=${encodeURIComponent(userId)}`)
       .then((r) => r.json())
       .then(({ token, api_key, error }) => {
         if (cancelled) return;
-        if (error || !token || !api_key) {
-          console.warn('Stream token fetch failed:', error);
-          setStreamStatus('unconfigured');
-          return;
-        }
+        if (error || !token || !api_key) { setStreamStatus('unconfigured'); return; }
         initStream({ apiKey: api_key, userId, token, callType, callId });
       })
-      .catch((err) => {
-        if (!cancelled) {
-          console.warn('Could not fetch Stream token:', err.message);
-          setStreamStatus('unconfigured');
-        }
-      });
+      .catch(() => { if (!cancelled) setStreamStatus('unconfigured'); });
 
     return () => {
       cancelled = true;
@@ -133,41 +167,27 @@ export default function App() {
     };
 
     function initStream({ apiKey, userId, token, callType, callId }) {
-      const client = new StreamVideoClient({
-        apiKey,
-        user: { id: userId, name: 'Demo User' },
-        token,
-      });
+      const client = new StreamVideoClient({ apiKey, user: { id: userId, name: 'Demo User' }, token });
       streamClientRef.current = client;
-
       const call = client.call(callType, callId);
       streamCallRef.current = call;
-
       call.join({ create: true })
         .then(() => {
           window.streamCall = call;
           setStreamStatus('connected');
-
           call.on('custom', (event) => {
             const type = event?.type || event?.custom?.type;
             const payload = event?.payload || event?.custom?.payload || event?.custom || {};
             if (type === 'mirror_update') handleMirrorUpdateEvent(payload?.payload ?? payload);
           });
         })
-        .catch((err) => {
-          console.warn('GetStream join failed:', err?.message || err);
-          setStreamStatus('error');
-        });
+        .catch(() => setStreamStatus('error'));
     }
   }, [handleMirrorUpdateEvent]);
 
-  // ── Mirror on/off — uses GetStream camera when connected, native fallback ─
-
+  // ── Mirror start / stop ───────────────────────────────────────────────────────
   const stopMirror = useCallback(async () => {
-    if (streamUnsubRef.current) {
-      streamUnsubRef.current();
-      streamUnsubRef.current = null;
-    }
+    if (streamUnsubRef.current) { streamUnsubRef.current(); streamUnsubRef.current = null; }
     const call = streamCallRef.current;
     if (call && streamStatus === 'connected') {
       try { await call.camera.disable(); } catch { /* best effort */ }
@@ -183,50 +203,32 @@ export default function App() {
   const startMirror = useCallback(async () => {
     setCameraError('');
     const call = streamCallRef.current;
-
     try {
       let mediaStream;
-
       if (call && streamStatus === 'connected') {
-        // Use GetStream's camera — it manages permissions and device selection
         await call.camera.enable();
-
-        // Pull the MediaStream from the Stream camera state
         mediaStream = call.camera.state.mediaStream;
-
-        // Subscribe to mediaStream changes (Stream may swap tracks after constraints settle)
         const sub = call.camera.state$?.subscribe?.((s) => {
-          if (s.mediaStream && videoRef.current) {
-            videoRef.current.srcObject = s.mediaStream;
-          }
+          if (s.mediaStream && videoRef.current) videoRef.current.srcObject = s.mediaStream;
         });
-        // Store unsubscribe for cleanup
         streamUnsubRef.current = sub?.unsubscribe?.bind(sub) || null;
       } else {
-        // Fallback: native getUserMedia
-        if (!navigator.mediaDevices?.getUserMedia) {
-          setCameraError('Camera not available. Check browser permissions.');
-          return;
-        }
+        if (!navigator.mediaDevices?.getUserMedia) { setCameraError('Camera not available.'); return; }
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
           audio: false,
         });
       }
-
       if (videoRef.current && mediaStream) {
         videoRef.current.srcObject = mediaStream;
         videoRef.current.muted = true;
         await videoRef.current.play().catch(() => {});
       }
-
       setIsMirrorOn(true);
-      setShowResult(false);
-      setStatus('Mirror active — pose and click Take Photo when ready.');
     } catch (err) {
       const code = err?.name || 'UnknownError';
       if (code === 'NotAllowedError' || code === 'SecurityError') {
-        setCameraError('Camera permission denied. Enable it in browser settings.');
+        setCameraError('Camera permission denied.');
       } else if (code === 'NotFoundError') {
         setCameraError('No camera found.');
       } else {
@@ -235,42 +237,32 @@ export default function App() {
     }
   }, [streamStatus]);
 
-  const toggleMirror = useCallback(async () => {
-    if (isMirrorOn) {
-      await stopMirror();
-      setStatus('Mirror off.');
-    } else {
-      await startMirror();
+  // Auto-start camera once stream is ready (or falls back to native)
+  useEffect(() => {
+    if ((streamStatus === 'connected' || streamStatus === 'unconfigured') && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      startMirror();
     }
-  }, [isMirrorOn, startMirror, stopMirror]);
+  }, [streamStatus, startMirror]);
 
   useEffect(() => () => { stopMirror(); }, [stopMirror]);
 
-  // ── Capture base photo from the mirror ────────────────────────────────────
-
+  // ── Take base photo ───────────────────────────────────────────────────────────
   const handleTakePhoto = useCallback(() => {
-    if (!isMirrorOn) { setCameraError('Start the mirror first.'); return; }
     const video = videoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth) {
-      setCameraError('Video not ready yet. Wait a moment and try again.');
-      return;
-    }
+    if (!video || video.readyState < 2 || !video.videoWidth) return;
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    // Mirror the canvas to match the flipped display
     const ctx = canvas.getContext('2d');
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setBasePhotoUrl(dataUrl);
+    setBasePhotoUrl(canvas.toDataURL('image/jpeg', 0.85));
     setCameraError('');
-    setStatus(activeOutfitUrl ? 'Photo taken! Click Generate Try-On.' : 'Photo taken! Now upload or select the outfit you want to wear.');
-  }, [isMirrorOn, activeOutfitUrl]);
+  }, []);
 
-  // ── Outfit upload ─────────────────────────────────────────────────────────
-
+  // ── Outfit upload ─────────────────────────────────────────────────────────────
   const handleOutfitUpload = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -280,22 +272,21 @@ export default function App() {
         setCustomOutfitUrl(reader.result);
         setSelectedPresetId(null);
         setCameraError('');
-        setStatus(basePhotoUrl ? 'Outfit ready! Click Generate Try-On.' : 'Outfit ready! Now take a photo of yourself in the mirror.');
       } else {
         setCameraError('Please upload a valid image file.');
       }
     };
     reader.readAsDataURL(file);
-  }, [basePhotoUrl]);
+    // Reset so same file can be re-selected
+    e.target.value = '';
+  }, []);
 
   const handlePresetSelect = useCallback((id) => {
     setSelectedPresetId(id);
     setCustomOutfitUrl('');
-    setStatus(basePhotoUrl ? 'Outfit selected! Click Generate Try-On.' : 'Outfit selected! Now take a photo of yourself in the mirror.');
-  }, [basePhotoUrl]);
+  }, []);
 
-  // ── Backend health check ──────────────────────────────────────────────────
-
+  // ── Backend health check ──────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/health')
       .then((r) => r.json())
@@ -303,8 +294,7 @@ export default function App() {
       .catch(() => setBackendStatus('offline'));
   }, []);
 
-  // ── Compress image before sending ────────────────────────────────────────
-
+  // ── Image compression ─────────────────────────────────────────────────────────
   const compressDataUrl = useCallback(async (dataUrl) => {
     if (!dataUrl.startsWith('data:image/')) return dataUrl;
     return new Promise((resolve) => {
@@ -328,8 +318,7 @@ export default function App() {
     });
   }, []);
 
-  // ── Send GetStream custom event ───────────────────────────────────────────
-
+  // ── GetStream custom event ────────────────────────────────────────────────────
   const sendStreamEvent = useCallback(async (type, payload) => {
     const call = streamCallRef.current;
     if (!call || streamStatus !== 'connected') return false;
@@ -346,8 +335,7 @@ export default function App() {
     }
   }, [streamStatus]);
 
-  // ── Generate try-on ───────────────────────────────────────────────────────
-
+  // ── Direct API fallback ───────────────────────────────────────────────────────
   const callDirectApi = useCallback(async (poseImage, outfitImage) => {
     try {
       const res = await fetch('/api/tryon', {
@@ -355,34 +343,22 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pose_image: poseImage, garment_image: outfitImage }),
       });
-
       let data;
-      try {
-        data = await res.json();
-      } catch {
+      try { data = await res.json(); } catch {
         const text = await res.text().catch(() => '');
-        throw new Error(
-          res.ok
-            ? `Server returned unreadable response (${res.status})`
-            : `Server error ${res.status}${text ? ': ' + text.slice(0, 200) : ' (no body)'}`
-        );
+        throw new Error(res.ok ? `Unreadable response (${res.status})` : `Server error ${res.status}${text ? ': ' + text.slice(0, 200) : ''}`);
       }
-
       if (data.status === 'success' && data.image_url) {
         setResultUrl(data.image_url);
         setShowResult(true);
         setStatus('Try-on ready!');
       } else {
         setCameraError(data.message || data.reason || `Generation failed (status: ${data.status})`);
-        setStatus('Generation failed. See error above.');
+        setStatus('Generation failed.');
       }
     } catch (err) {
       const msg = err.message || String(err);
-      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        setCameraError('Cannot reach backend. Run: cd my-agent && uv run uvicorn server:app --port 8000');
-      } else {
-        setCameraError(msg);
-      }
+      setCameraError(msg.includes('Failed to fetch') ? 'Cannot reach backend.' : msg);
       setStatus('Generation failed.');
     } finally {
       setIsGenerating(false);
@@ -390,9 +366,9 @@ export default function App() {
     }
   }, []);
 
+  // ── Generate try-on ───────────────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
     if (!canGenerate) return;
-
     setIsGenerating(true);
     setResultUrl('');
     setShowResult(false);
@@ -401,7 +377,6 @@ export default function App() {
     const poseImage = await compressDataUrl(basePhotoUrl);
     const outfitImage = activeOutfitUrl;
 
-    // Try GetStream path first (Python agent via main.py receives this)
     const sentViaStream = await sendStreamEvent('generate_tryon', {
       request_id: `tryon-${Date.now()}`,
       provider: 'nanobanana',
@@ -410,278 +385,310 @@ export default function App() {
     });
 
     if (sentViaStream) {
-      setStatus('Request sent via GetStream — waiting for backend agent…');
-      // Fall back to direct API after 30 s if no mirror_update event arrives
+      setStatus('Generating — please wait…');
       generateTimeoutRef.current = setTimeout(async () => {
-        setStatus('No Stream response. Trying direct API…');
+        setStatus('Trying direct API…');
         await callDirectApi(poseImage, outfitImage);
       }, 30_000);
       return;
     }
 
-    // Direct API path (server.py)
-    setStatus('Sending to Gemini — this takes 10–30 seconds…');
+    setStatus('Generating — this takes 10–30 seconds…');
     await callDirectApi(poseImage, outfitImage);
   }, [canGenerate, basePhotoUrl, activeOutfitUrl, compressDataUrl, sendStreamEvent, callDirectApi]);
 
-  // ── Save result photo ─────────────────────────────────────────────────────
+  // ── Browse: product tapped → store full product + Image 2, go to Page 3 ─────
+  const handleSelectProduct = useCallback((product) => {
+    setSelectedProduct(product);
+    setCustomOutfitUrl(product.imageUrl);
+    setCurrentPage(PAGE.ITEM_DETAIL);
+  }, []);
 
-  const handleSavePhoto = useCallback(async () => {
-    if (!resultUrl) return;
-    try {
-      let blobUrl = resultUrl;
-      if (!resultUrl.startsWith('data:')) {
-        const res = await fetch(resultUrl);
-        const blob = await res.blob();
-        blobUrl = URL.createObjectURL(blob);
-      }
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `tryon-${Date.now()}.png`;
-      a.click();
-      if (!resultUrl.startsWith('data:')) URL.revokeObjectURL(blobUrl);
-    } catch {
-      setCameraError('Could not save photo. Try right-clicking the image and saving manually.');
+  // ── Item Detail: back → clear Image 2, return to Browse ──────────────────────
+  const handleItemBack = useCallback(() => {
+    setCustomOutfitUrl('');
+    setSelectedProduct(null);
+    setCurrentPage(PAGE.BROWSE);
+  }, []);
+
+  // ── Item Detail: Try On → Image 2 already set, go to Ready screen ────────────
+  const handleItemTryOn = useCallback(() => {
+    setCurrentPage(PAGE.READY);
+  }, []);
+
+  // ── Countdown complete: capture Image 1 only, then show flash (5a) ──────────
+  // Generation is deferred to the "Try On" button on 5b so the user can retake.
+  const handleCountdownCapture = useCallback(() => {
+    const video = videoRef.current;
+    if (video && video.readyState >= 2 && video.videoWidth) {
+      const canvas = document.createElement('canvas');
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+      setBasePhotoUrl(canvas.toDataURL('image/jpeg', 0.85));
     }
-  }, [resultUrl]);
+    setCurrentPage(PAGE.CAPTURE);
+  }, []);
 
-  // ── Computed labels ───────────────────────────────────────────────────────
+  // ── 5b: Retake — discard Image 1 and return to Ready screen ─────────────────
+  const handleReviewRetake = useCallback(() => {
+    setBasePhotoUrl('');
+    setCurrentPage(PAGE.READY);
+  }, []);
 
-  const streamLabel =
-    streamStatus === 'connected' ? 'Stream Connected' :
-    streamStatus === 'connecting' ? 'Stream Connecting…' :
-    streamStatus === 'error' ? 'Stream Error' :
-    streamStatus === 'unconfigured' ? 'Stream (not configured)' : '';
+  // ── 5b: Try On — send both images to Gemini, go to Page 6 ───────────────────
+  const handleReviewTryOn = useCallback(async () => {
+    if (!basePhotoUrl || !customOutfitUrl) return;
 
-  const streamBadgeClass =
-    streamStatus === 'connected' ? 'online' :
-    streamStatus === 'connecting' ? 'degraded' :
-    streamStatus === 'error' ? 'error' : 'offline';
+    setCurrentPage(PAGE.RESULT);
+    setIsGenerating(true);
+    setResultUrl('');
+    setShowResult(false);
+    setCameraError('');
+    setStatus('Generating your try-on…');
 
-  const backendLabel =
-    backendStatus === 'online' ? 'API Ready' :
-    backendStatus === 'no-key' ? 'Missing API Key' :
-    backendStatus === 'offline' ? 'API Offline' : 'Checking…';
+    const poseImage = await compressDataUrl(basePhotoUrl);
 
+    const sentViaStream = await sendStreamEvent('generate_tryon', {
+      request_id: `tryon-${Date.now()}`,
+      provider: 'nanobanana',
+      image_url: customOutfitUrl,
+      pose_image_url: poseImage,
+    });
+
+    if (sentViaStream) {
+      // Wait up to 45 s for a Stream result before falling back to direct API.
+      // Gemini takes 15-30 s; 45 s gives it room without hanging forever.
+      generateTimeoutRef.current = setTimeout(async () => {
+        setStatus('Trying direct API…');
+        await callDirectApi(poseImage, customOutfitUrl);
+      }, 45_000);
+      return;
+    }
+
+    await callDirectApi(poseImage, customOutfitUrl);
+  }, [basePhotoUrl, customOutfitUrl, compressDataUrl, sendStreamEvent, callDirectApi]);
+
+  // ── Idle detection — active on Browse, Item Detail, Review, View Result ───────
+  const IDLE_PAGES = [PAGE.BROWSE, PAGE.ITEM_DETAIL, PAGE.REVIEW, PAGE.VIEW_RESULT];
+  const idleActive = IDLE_PAGES.includes(currentPage) && !showIdlePopup;
+
+  const handleIdleFired = useCallback(() => {
+    setIdleCountdown(5);
+    setShowIdlePopup(true);
+  }, []);
+
+  useIdleTimeout(idleActive, 30_000, handleIdleFired);
+
+  // Countdown inside the popup: 5 → 0 then go HOME
+  useEffect(() => {
+    if (!showIdlePopup) return;
+    setIdleCountdown(5);
+    idleCountdownRef.current = setInterval(() => {
+      setIdleCountdown((n) => {
+        if (n <= 1) {
+          clearInterval(idleCountdownRef.current);
+          setShowIdlePopup(false);
+          setCurrentPage(PAGE.HOME);
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => clearInterval(idleCountdownRef.current);
+  }, [showIdlePopup]);
+
+  const handleIdleYes = useCallback(() => {
+    clearInterval(idleCountdownRef.current);
+    setShowIdlePopup(false);
+  }, []);
+
+  const handleIdleNo = useCallback(() => {
+    clearInterval(idleCountdownRef.current);
+    setShowIdlePopup(false);
+    setCurrentPage(PAGE.HOME);
+  }, []);
+
+  // ── Upload popup handlers ─────────────────────────────────────────────────────
+  const handleUploadConfirm = useCallback(() => {
+    setShowUploadPopup(false);
+    setCurrentPage(PAGE.READY);
+  }, []);
+
+  const handleUploadCancel = useCallback(() => {
+    setShowUploadPopup(false);
+    // Keep customOutfitUrl so it's preserved if user reopens
+  }, []);
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="app-container">
-      {/* ── LEFT: Mirror ── */}
-      <main className="mirror-section">
-        <header className="mirror-header">
-          <div className="header-top">
-            <div>
-              <h1>TRY ON AI</h1>
-              <p>Virtual Fitting Room — Powered by Gemini</p>
-            </div>
-            <div className="sponsor-badge">
-              <span className="sponsor-label">Powered by</span>
-              <a href="https://getstream.io" target="_blank" rel="noopener noreferrer" className="stream-logo-link">
-                <StreamLogo />
-              </a>
-            </div>
-          </div>
-        </header>
+    <div className="mirror-app">
 
-        <div className="mirror-view-wrapper">
-          <div className="mirror-stage">
-            {/* GetStream / webcam feed — always rendered, hidden when off */}
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="camera-feed mirrored"
-              style={{ display: isMirrorOn && !showResult ? 'block' : 'none' }}
-            />
+      {/* Always-on camera feed — the "mirror reflection" */}
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        playsInline
+        className="mirror-bg"
+      />
 
-            {/* Try-on result */}
-            {showResult && resultUrl && (
-              <img
-                src={resultUrl}
-                alt="Try-on result"
-                className="camera-feed"
-                style={{ pointerEvents: 'none' }}
-                onError={() => { setCameraError('Could not load result image.'); setResultUrl(''); setShowResult(false); }}
-              />
-            )}
+      {/* Decorative frame layered over the camera */}
+      <div className="mirror-frame" aria-hidden="true" />
 
-            {/* Placeholder */}
-            {!isMirrorOn && !showResult && (
-              <div className="camera-placeholder">
-                <span style={{ fontSize: '3rem' }}>🪞</span>
-                <p>Start the mirror to see yourself</p>
-              </div>
-            )}
+      {/* Camera error banner */}
+      {cameraError && currentPage === PAGE.HOME && (
+        <div className="camera-error-banner">{cameraError}</div>
+      )}
+
+      {/* ── PAGE: HOME ────────────────────────────────────────────────────────── */}
+      {currentPage === PAGE.HOME && (
+        <div className="home-overlay">
+          <div className="home-center">
+            <h1 className="welcome-text">Welcome! Tap here to start!</h1>
           </div>
 
-          <div className="mirror-overlay">
-            <div className="overlay-badge">
-              <div className="badge-pulse"></div>
-              <span>
-                {showResult ? 'RESULT READY' : isMirrorOn ? 'MIRROR ACTIVE' : 'STANDBY'}
-              </span>
-            </div>
-
-            <div className="status-badges-row">
-              {streamLabel && (
-                <div className={`backend-health-badge ${streamBadgeClass}`}>
-                  <span>{streamLabel}</span>
-                </div>
-              )}
-              <div className={`backend-health-badge ${backendStatus === 'online' ? 'online' : backendStatus === 'offline' ? 'error' : 'degraded'}`}>
-                <span>{backendLabel}</span>
-              </div>
-            </div>
-
-            {isMirrorOn && !showResult && <div className="scan-line"></div>}
-
-            <div className="mirror-bottom-dock">
-              <div className="mirror-controls">
-                <button className="btn" onClick={toggleMirror}>
-                  {isMirrorOn ? 'Stop Mirror' : 'Start Mirror'}
-                </button>
-
-                <button className="btn" onClick={handleTakePhoto} disabled={!isMirrorOn || showResult}>
-                  Take Photo
-                </button>
-
-                <button
-                  className={`btn btn-primary${!canGenerate ? ' disabled' : ''}`}
-                  onClick={handleGenerate}
-                  disabled={!canGenerate}
-                >
-                  {isGenerating ? 'Generating…' : 'Generate Try-On'}
-                </button>
-
-                {showResult && (
-                  <>
-                    <button className="btn btn-save" onClick={handleSavePhoto}>
-                      💾 Save Photo
-                    </button>
-                    <button className="btn" onClick={() => { setShowResult(false); setResultUrl(''); setBasePhotoUrl(''); setStatus('Mirror ready. Take a new photo to try on another outfit.'); }}>
-                      Try Again
-                    </button>
-                  </>
-                )}
-              </div>
-
-              <p className="generation-status">{status}</p>
-              {cameraError && <p className="camera-error">{cameraError}</p>}
-            </div>
-          </div>
-        </div>
-
-        {/* Base photo strip — shows the captured photo while mirror is on */}
-        {basePhotoUrl && isMirrorOn && (
-          <div className="pose-strip">
-            <p className="pose-strip-label">Your photo</p>
-            <img
-              src={basePhotoUrl}
-              alt="Base photo"
-              className="pose-strip-thumb pose-strip-thumb--clickable"
-              onClick={() => setPhotoPreviewOpen(true)}
-            />
-            <button className="pose-strip-retake" onClick={handleTakePhoto}>Retake</button>
-          </div>
-        )}
-
-        {photoPreviewOpen && basePhotoUrl && (
-          <div className="photo-lightbox" onClick={() => setPhotoPreviewOpen(false)}>
-            <div className="photo-lightbox-inner" onClick={(e) => e.stopPropagation()}>
-              <button className="photo-lightbox-close" onClick={() => setPhotoPreviewOpen(false)}>✕</button>
-              <img src={basePhotoUrl} alt="Your photo preview" className="photo-lightbox-img" />
-            </div>
-          </div>
-        )}
-
-        {/* Hidden file input for outfit */}
-        <input ref={outfitInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleOutfitUpload} />
-      </main>
-
-      {/* ── RIGHT: Sidebar ── */}
-      <aside className="sidebar">
-        <div className="panel-content">
-
-          {/* Step indicators */}
-          <div className="steps-row">
-            <div className={`step ${basePhotoUrl ? 'done' : isMirrorOn ? 'active' : ''}`}>
-              <span className="step-num">{basePhotoUrl ? '✓' : '1'}</span>
-              <span>{basePhotoUrl ? 'Photo taken' : 'Take photo'}</span>
-            </div>
-            <div className="step-arrow">→</div>
-            <div className={`step ${activeOutfitUrl ? 'done' : ''}`}>
-              <span className="step-num">{activeOutfitUrl ? '✓' : '2'}</span>
-              <span>{activeOutfitUrl ? 'Outfit ready' : 'Pick outfit'}</span>
-            </div>
-            <div className="step-arrow">→</div>
-            <div className={`step ${showResult ? 'done' : ''}`}>
-              <span className="step-num">{showResult ? '✓' : '3'}</span>
-              <span>{showResult ? 'Done!' : 'Generate'}</span>
-            </div>
-          </div>
-
-          {/* Outfit upload */}
-          <section style={{ marginTop: '24px' }}>
-            <h2>Upload Outfit Photo</h2>
-            <p className="section-hint">Photo of the clothing item you want to try on</p>
-            <button className="btn upload-outfit-btn" onClick={() => { if (outfitInputRef.current) { outfitInputRef.current.value = ''; outfitInputRef.current.click(); } }}>
-              {customOutfitUrl ? 'Change Outfit' : '+ Upload Outfit Photo'}
+          <div className="home-buttons">
+            <button className="home-btn btn-smart-recc" aria-disabled="true" tabIndex={-1}>
+              ✨Smart Recc
             </button>
-            {customOutfitUrl && (
-              <div className="uploaded-garment-preview">
-                <img src={customOutfitUrl} alt="Your outfit" />
-                <button className="clear-btn" onClick={() => { setCustomOutfitUrl(''); setSelectedPresetId(null); if (outfitInputRef.current) outfitInputRef.current.value = ''; }}>✕</button>
-              </div>
-            )}
-          </section>
-
-          {/* Preset catalog */}
-          <section style={{ marginTop: '24px' }}>
-            <h2>Or Choose from Catalog</h2>
-            <div className="item-grid">
-              {PRESET_GARMENTS.map((item) => (
-                <button
-                  key={item.id}
-                  className={`item-card${selectedPresetId === item.id && !customOutfitUrl ? ' selected' : ''}`}
-                  onClick={() => handlePresetSelect(item.id)}
-                >
-                  <div className="item-image-wrapper">
-                    <img src={item.imageUrl} alt={item.name} className="item-photo" />
-                  </div>
-                  <div className="item-info">
-                    <h3>{item.name}</h3>
-                    <p>{item.category}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Generate button in sidebar when ready */}
-          {canGenerate && (
             <button
-              className="btn btn-primary"
-              style={{ marginTop: '24px', width: '100%' }}
-              onClick={handleGenerate}
+              className="home-btn btn-action"
+              onClick={() => setShowUploadPopup(true)}
             >
-              {isGenerating ? 'Generating…' : '✨ Generate Try-On'}
+              Upload Your Own
             </button>
-          )}
-
-          {/* GetStream info card */}
-          <section className="stream-info-card">
-            <div className="stream-info-logo"><StreamLogo /></div>
-            <p>
-              {streamStatus === 'connected'
-                ? 'Mirror stream and event delivery via GetStream.'
-                : 'Add Stream credentials to enable real-time video streaming.'}
-            </p>
-            <a href="https://getstream.io" target="_blank" rel="noopener noreferrer" className="stream-cta">
-              getstream.io →
-            </a>
-          </section>
+            <button
+              className="home-btn btn-action"
+              onClick={() => setCurrentPage(PAGE.BROWSE)}
+            >
+              Browse…
+            </button>
+          </div>
         </div>
-      </aside>
+      )}
+
+      {/* ── UPLOAD POPUP (over Home screen) ───────────────────────────────────── */}
+      {showUploadPopup && (
+        <UploadPopup
+          customOutfitUrl={customOutfitUrl}
+          outfitInputRef={outfitInputRef}
+          onCancel={handleUploadCancel}
+          onConfirm={handleUploadConfirm}
+          onClear={() => { setCustomOutfitUrl(''); setSelectedPresetId(null); }}
+        />
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={outfitInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleOutfitUpload}
+      />
+
+      {/* ── PAGE: BROWSE ──────────────────────────────────────────────────────── */}
+      {currentPage === PAGE.BROWSE && (
+        <BrowsePage
+          onBack={() => setCurrentPage(PAGE.HOME)}
+          onSelectProduct={handleSelectProduct}
+        />
+      )}
+
+      {/* ── PAGE: ITEM DETAIL (Page 3) ────────────────────────────────────────── */}
+      {currentPage === PAGE.ITEM_DETAIL && (
+        <ItemDetailPage
+          product={selectedProduct}
+          onBack={handleItemBack}
+          onTryOn={handleItemTryOn}
+        />
+      )}
+
+      {/* ── PAGE: READY ───────────────────────────────────────────────────────── */}
+      {currentPage === PAGE.READY && (
+        <div className="ready-overlay">
+          <div className="ready-center">
+            <p className="ready-text">Ready?</p>
+            <button
+              className="ready-btn"
+              onClick={() => setCurrentPage(PAGE.COUNTDOWN)}
+            >
+              Take Photo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PAGE: COUNTDOWN (Page 4) ──────────────────────────────────────────── */}
+      {currentPage === PAGE.COUNTDOWN && (
+        <CountdownPage onCapture={handleCountdownCapture} />
+      )}
+
+      {/* ── PAGE: CAPTURE (5a — flash ring, auto-advances to 5b) ─────────────── */}
+      {currentPage === PAGE.CAPTURE && (
+        <CapturePage onComplete={() => setCurrentPage(PAGE.REVIEW)} />
+      )}
+
+      {/* ── PAGE: REVIEW CAPTURE (5b) ─────────────────────────────────────────── */}
+      {currentPage === PAGE.REVIEW && (
+        <ReviewCapturePage
+          photoUrl={basePhotoUrl}
+          onRetake={handleReviewRetake}
+          onTryOn={handleReviewTryOn}
+        />
+      )}
+
+      {/* ── PAGE: RESULT (Page 6 — generating) ───────────────────────────────── */}
+      {currentPage === PAGE.RESULT && (
+        <GeneratingPage
+          resultReady={showResult && Boolean(resultUrl)}
+          generationError={!isGenerating && !showResult && Boolean(cameraError) ? cameraError : ''}
+          onComplete={() => setCurrentPage(PAGE.VIEW_RESULT)}
+          onError={() => {
+            setCameraError('');
+            setCurrentPage(PAGE.REVIEW);
+          }}
+        />
+      )}
+
+      {/* ── PAGE: VIEW_RESULT (Page 7 — final try-on result) ─────────────────── */}
+      {currentPage === PAGE.VIEW_RESULT && (
+        <ResultPage
+          resultUrl={resultUrl}
+          onBrowse={() => {
+            setCurrentPage(PAGE.BROWSE);
+            setResultUrl('');
+            setShowResult(false);
+            setBasePhotoUrl('');
+          }}
+          onHome={() => {
+            setCurrentPage(PAGE.HOME);
+            setResultUrl('');
+            setShowResult(false);
+            setBasePhotoUrl('');
+            setCustomOutfitUrl('');
+          }}
+          onReady={() => {
+            setCurrentPage(PAGE.READY);
+            setResultUrl('');
+            setShowResult(false);
+            setBasePhotoUrl('');
+          }}
+        />
+      )}
+
+      {/* ── IDLE POPUP — shown over any idle-watched page ─────────────────────── */}
+      {showIdlePopup && (
+        <IdlePopup
+          countdown={idleCountdown}
+          onYes={handleIdleYes}
+          onNo={handleIdleNo}
+        />
+      )}
     </div>
   );
 }

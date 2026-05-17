@@ -1,7 +1,7 @@
 {
   "name": "try-it-on",
   "scripts": {
-    "dev": "lsof -ti:8000 | xargs kill -9 2>/dev/null; concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" \"cd my-agent && uv run uvicorn server:app --port 8000\" \"cd try-on-react && npm run dev\""
+    "dev": "lsof -ti:8000,5173,5174 | xargs kill -9 2>/dev/null; concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" \"cd my-agent && uv run uvicorn server:app --port 8000\" \"cd try-on-react && npm run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

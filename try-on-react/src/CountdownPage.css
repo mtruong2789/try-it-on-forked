@@ -1,0 +1,68 @@
+/* ── Countdown overlay — transparent, sits above camera/frame ──────────────── */
+/* No panel or background: just text on top of the raw mirror reflection.       */
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Barely-there vignette so white text stays legible over any background */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.08) 0%,
+    rgba(0, 0, 0, 0.28) 100%
+  );
+  pointer-events: none;
+}
+
+.countdown-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Tight gap so number and pose text feel like one unit */
+  gap: clamp(4px, 1vh, 14px);
+}
+
+/* ── Countdown number — Archivo Black, white ─────────────────────────────── */
+.countdown-number {
+  display: block;
+  font-family: 'Archivo Black', sans-serif;
+  font-size: clamp(9rem, 24vw, 22rem);
+  font-weight: 400; /* Archivo Black is a single-weight face */
+  color: #ffffff;
+  line-height: 1;
+  text-shadow:
+    0 4px 40px rgba(0, 0, 0, 0.55),
+    0 0 80px rgba(255, 255, 255, 0.08);
+  /* Re-triggered on every key change (React remounts → animation restarts) */
+  animation: countPop 0.96s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes countPop {
+  0%   { opacity: 0; transform: scale(1.7); }
+  18%  { opacity: 1; transform: scale(1.0); }
+  72%  { opacity: 1; transform: scale(1.0); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+
+/* ── "P o s e !" — Megrim, same size as Page 1 welcome heading ───────────── */
+.countdown-pose {
+  margin: 0;
+  font-family: 'Megrim', cursive;
+  /* Identical clamp to .welcome-text on Page 1 */
+  font-size: clamp(2.6rem, 7vw, 6rem);
+  font-weight: 400;
+  color: #e7e6fa;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow:
+    0 2px 32px rgba(0, 0, 0, 0.6),
+    0 0 80px rgba(231, 230, 250, 0.12);
+  animation: poseFadeIn 0.45s ease both;
+}
+
+@keyframes poseFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

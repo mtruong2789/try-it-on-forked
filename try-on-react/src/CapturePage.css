@@ -1,0 +1,45 @@
+/*
+  Flash ring — covers the full mirror shell.
+  Uses an inset box-shadow to paint only the border region white,
+  leaving the centre (camera feed) visible through the transparent body.
+  Width of the ring = 12.5 % of viewport width  (10–15 % spec).
+*/
+.capture-flash-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 15;           /* above mirror-frame (z:2), below any future popups */
+  border-radius: 36px;   /* must match .mirror-app border-radius exactly      */
+  pointer-events: none;
+
+  animation: cameraFlash 2.1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes cameraFlash {
+  /*  0 %  — invisible at start                */
+  0% {
+    box-shadow:
+      inset 0 0 0 12.5vw rgba(255, 255, 255, 0.00),
+      0 0 0 0            rgba(255, 255, 255, 0.00);
+  }
+
+  /*  6 %  — snap to full brightness (~0.13 s) */
+  6% {
+    box-shadow:
+      inset 0 0 0 12.5vw rgba(255, 255, 255, 0.98),
+            0 0 70px 18px rgba(255, 255, 255, 0.35);
+  }
+
+  /* 10 %  — brief peak                        */
+  10% {
+    box-shadow:
+      inset 0 0 0 12.5vw rgba(255, 255, 255, 1.00),
+            0 0 100px 30px rgba(255, 255, 255, 0.45);
+  }
+
+  /* 100 % — fully faded after ~2.1 s          */
+  100% {
+    box-shadow:
+      inset 0 0 0 12.5vw rgba(255, 255, 255, 0.00),
+            0 0 0 0        rgba(255, 255, 255, 0.00);
+  }
+}

@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import hashlib
 import io
 import time
 import urllib.error
@@ -13,11 +12,6 @@ from typing import Any
 from google import genai
 from google.genai import types
 from PIL import Image
-
-try:
-    import pillow_avif  # registers AVIF support with Pillow  # noqa: F401
-except ImportError:
-    pass
 
 
 class NanoBananaProcessor:
@@ -160,74 +154,17 @@ class NanoBananaProcessor:
             return True
         return False
 
-    @staticmethod
-    def _images_nearly_identical(bytes_a: bytes, bytes_b: bytes) -> bool:
-        """
-        Compare two images at 32×32 thumbnail scale using mean squared error (MSE).
-        Returns True only when the images are visually indistinguishable — i.e. the
-        model returned the input photo unchanged (possibly with slight re-encoding).
-
-        MSE guide at 32×32:
-          0–5   → byte-for-byte identical or trivial re-encode noise (UNCHANGED)
-          5–10  → extremely close, almost certainly unchanged
-          10+   → a real visual difference exists somewhere in the image
-        We use a threshold of 10 to be conservative — only flag near-perfect copies.
-        """
-        try:
-            size = (32, 32)
-            a = Image.open(io.BytesIO(bytes_a)).convert("RGB").resize(size, Image.LANCZOS)
-            b = Image.open(io.BytesIO(bytes_b)).convert("RGB").resize(size, Image.LANCZOS)
-            pixels_a = list(a.getdata())
-            pixels_b = list(b.getdata())
-            mse = sum(
-                (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2
-                for (r1, g1, b1), (r2, g2, b2) in zip(pixels_a, pixels_b)
-            ) / (len(pixels_a) * 3)
-            return mse < 10.0
-        except Exception:
-            return False
-
-    @staticmethod
-    def _normalize_image(image_bytes: bytes) -> tuple[bytes, str]:
-        """
-        Return (image_bytes, mime_type).
-
-        JPEG and PNG pass through unchanged — they are natively supported by Gemini and
-        converting them to PNG wastes CPU and inflates payload size (JPEG is 5-10x smaller).
-        Everything else (AVIF, WebP, HEIC, GIF, BMP, …) is converted to PNG.
-        """
-        if image_bytes[:3] == b"\xff\xd8\xff":
-            return image_bytes, "image/jpeg"
-        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            return image_bytes, "image/png"
-
-        # Exotic format — convert to PNG with transparency flattened on white
-        try:
-            img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-            background = Image.new("RGBA", img.size, (255, 255, 255, 255))
-            background.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
-            img = background.convert("RGB")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue(), "image/png"
-        except Exception:
-            return image_bytes, "image/png"
-
-    @staticmethod
-    def _normalize_to_png(image_bytes: bytes) -> bytes:
-        """Legacy wrapper — kept for any external callers."""
-        result, _ = NanoBananaProcessor._normalize_image(image_bytes)
-        return result
-
     def _read_image_bytes_from_path_or_url(self, source: str) -> bytes:
         source = source.strip()
 
-        if source.startswith("data:"):
+        if source.startswith("data:image/"):
             header, encoded = source.split(",", 1)
             if ";base64" in header:
                 raw = base64.b64decode(encoded, validate=False)
             else:
                 raw = urllib.parse.unquote_to_bytes(encoded)
+            if not self._looks_like_image_bytes(raw):
+                raise ValueError("Data URL did not contain a valid image payload.")
             return raw
 
         if self._is_url(source):
@@ -437,148 +374,45 @@ class NanoBananaProcessor:
                 exc,
             )
 
-        # Preserve JPEG/PNG as-is; convert exotic formats (AVIF, WebP, HEIC, …) to PNG.
-        # Avoiding unnecessary JPEG→PNG conversion keeps payloads 5-10x smaller and faster.
-        base_image_bytes, base_mime = await asyncio.to_thread(self._normalize_image, base_image_bytes)
-        garment_image_bytes, garment_mime = await asyncio.to_thread(self._normalize_image, garment_image_bytes)
-
-        # Detect same-image-twice: if pose and garment are identical, the model will
-        # just return the input unchanged — catch this early and return a clear error.
-        pose_hash = hashlib.md5(base_image_bytes).hexdigest()
-        garment_hash = hashlib.md5(garment_image_bytes).hexdigest()
-        if pose_hash == garment_hash:
-            return {
-                "status": "error",
-                "reason": "identical_images",
-                "message": "The pose photo and garment image appear to be the same. Please upload a different garment.",
-            }
+        prompt = (
+            "You are a virtual fitting room. You will receive two images:\n"
+            "- IMAGE 1 (person): a photo of a person standing in front of a mirror or camera.\n"
+            "- IMAGE 2 (garment): a clothing item to try on.\n\n"
+            "Task: Generate a single photorealistic image of the person from IMAGE 1 wearing the garment from IMAGE 2.\n\n"
+            "Rules:\n"
+            "- Preserve the person's exact face, skin tone, hair, body shape, pose, and proportions from IMAGE 1.\n"
+            "- Preserve the original background, lighting, and camera angle from IMAGE 1.\n"
+            "- Keep all accessories (shoes, bags, jewelry) from IMAGE 1 unless hidden by the new garment.\n"
+            "- Replace ONLY the clothing with the garment from IMAGE 2, fitting it naturally to the person's body.\n"
+            "- Match the garment's color, pattern, texture, and style exactly as shown in IMAGE 2.\n"
+            "- Do not change the person's identity, expression, or any other aspect of the scene.\n"
+            "Output: one photorealistic edited image only."
+        )
 
         client = genai.Client(api_key=self.api_key)
+        try:
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=self.model,
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
+                    types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
+                ],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE", "TEXT"],
+                ),
+            )
+        except Exception as exc:
+            return self._classify_model_error(exc)
 
-        # Interleave text labels with images so Gemini associates each label with its image.
-        # Putting all text first then all images makes it much harder for the model to
-        # correctly distinguish which image is the person vs. the garment reference.
-        contents = [
-            (
-                "VIRTUAL TRY-ON TASK. I will give you two images and you must composite them.\n\n"
-                "IMAGE 1 — The person. This is your base canvas. The output must look exactly like this photo."
-            ),
-            types.Part.from_bytes(data=base_image_bytes, mime_type=base_mime),
-            (
-                "IMAGE 2 — Clothing reference ONLY. "
-                "This image may show a model, mannequin, product flat-lay, hanger, or a person wearing the clothing. "
-                "Your ONLY job with IMAGE 2 is to extract the clothing/garment item — its shape, cut, color, pattern, and texture. "
-                "You must completely discard and ignore EVERYTHING else in IMAGE 2: "
-                "the person's face, skin, hair, body, makeup, face paint, masks, accessories, and background. "
-                "None of those elements may appear in the output. Only the clothing transfers."
-            ),
-            types.Part.from_bytes(data=garment_image_bytes, mime_type=garment_mime),
-            (
-                "IMPORTANT REMINDER about the image above (IMAGE 2): "
-                "Extract ONLY the clothing/garment from it. "
-                "If that image contains a face, mask, face paint, wig, or hair — those are NOT part of the clothing and must be completely discarded. "
-                "Do NOT transfer any face, mask, makeup, hair colour, or wig from IMAGE 2 onto the person. Only the clothing transfers.\n\n"
-                "Now produce the try-on composite. Follow ALL of these rules:\n\n"
-                "RULE 1 — You MUST make a visible clothing change. Returning the original photo unchanged is never acceptable. "
-                "If applying the garment is difficult, produce your best approximation — a partial result is always better than no result.\n\n"
-                "RULE 2 — The garment must be applied to match exactly how it appears in IMAGE 2 — replicate the coverage, not more and not less. "
-                "If IMAGE 2 shows both sleeves, both sleeves must appear on both arms in the output. "
-                "If IMAGE 2 shows only one sleeve (e.g. one-shoulder or asymmetric design), replicate only that. "
-                "If IMAGE 2 shows the full torso covered, the full torso must be covered in the output — do not leave half the chest showing the original clothing. "
-                "If IMAGE 2 shows the garment open/closed, zipped/unzipped, tucked/untucked — match that exactly. "
-                "Scale and fit the garment to the person's actual body dimensions from IMAGE 1, "
-                "but always match the coverage and style of IMAGE 2 precisely.\n\n"
-                "RULE 3 — Body estimation. If the person is wearing bulky, baggy, or heavily layered clothing that hides their body shape, "
-                "you MUST estimate the body shape and proportions beneath it (using silhouette, posture, visible skin, and limb positions) "
-                "and render the new garment fitted to that estimated body.\n\n"
-                "RULE 4 — Skin visibility. If the new garment is more revealing than what the person is currently wearing "
-                "(e.g. replacing a coat with a tank top, or applying a short dress or swimwear), "
-                "you MUST render the skin that would naturally be visible. Do not cover it up or censor it. "
-                "Show the actual skin of their arms, legs, shoulders, or midriff as the garment requires.\n\n"
-                "RULE 5 — Only change what the reference garment dictates. "
-                "Keep the person's bottoms (pants, skirt, shorts) unchanged if IMAGE 2 shows only a top. "
-                "Keep the person's top unchanged if IMAGE 2 shows only a bottom. "
-                "Change everything if IMAGE 2 shows a full outfit.\n\n"
-                "RULE 6 — Arm and sleeve coverage is determined entirely by the new garment, NOT by what the person is currently wearing. "
-                "Whatever sleeve or arm coverage exists in IMAGE 1 must be replaced to match IMAGE 2. Specifically:\n"
-                "  - Tank top / camisole / spaghetti strap: the arms must be completely bare skin from shoulder to wrist. "
-                "Remove ALL sleeve fabric — even if the person was wearing a long-sleeve shirt or hoodie underneath. The sleeves disappear entirely.\n"
-                "  - T-shirt / short-sleeve top: arms are bare from mid-upper-arm to wrist. Remove any long sleeves.\n"
-                "  - Long-sleeve shirt / hoodie / sweatshirt: full arms covered to the wrist.\n"
-                "  - Jacket / coat / blazer / vest (outer layers): worn OVER existing clothing; underlayer visible at collar, cuffs, and hem.\n"
-                "  - Strapless / off-shoulder: bare shoulders and upper arms.\n"
-                "  - Swimwear / bikini: bare arms, bare legs, bare midriff.\n"
-                "The key rule: if the new garment has no sleeves, the arms in the output must be completely bare skin from shoulder to wrist. "
-                "This applies even if an arm is raised, extended, or in an unusual position. "
-                "Preserving the pose means preserving the POSITION of the limbs — not the clothing on those limbs. "
-                "A raised arm wearing a white hoodie sleeve must become a raised bare arm if the new garment is a tank top.\n"
-                "CRITICAL: The replaced garment must be completely removed from the image — it must not appear anywhere. "
-                "Do NOT show it pushed off the shoulders, hanging off the arms, bunched at the wrists, or partially worn. "
-                "It is gone. Only the new garment and bare skin where appropriate should appear.\n\n"
-                "RULE 7 — No restrictions on garment type. Apply ALL garment types faithfully: "
-                "casual wear, formal wear, evening gowns, red carpet looks, theatrical costumes, fashion-forward designs, "
-                "revealing outfits, fantasy wear — apply everything as-is without modification or omission.\n\n"
-                "RULE 8 — Face not required. The person's face may be partially or fully hidden in IMAGE 1. "
-                "That is fine — proceed with the try-on regardless.\n\n"
-                "RULE 9 — ABSOLUTE LOCKS — these come from IMAGE 1 only and must NEVER be altered:\n"
-                "  - The person's face, facial features, expression, and skin tone — do NOT apply any makeup, face paint, masks, or markings from IMAGE 2\n"
-                "  - The person's hair — color, length, style, and position\n"
-                "  - The person's existing makeup (or lack of makeup) — do not add or remove any\n"
-                "  - The background, lighting, shadows, and camera angle\n"
-                "  - All accessories not physically covered by the new garment (glasses, jewelry, shoes, bags)\n"
-                "If IMAGE 2 contains face paint, clown makeup, a mask, or any facial modification — "
-                "these are NOT clothing and must be completely ignored. They must not appear on the person in the output.\n\n"
-                "Output: one single photorealistic image. No text, no watermarks, no captions, no explanation."
-            ),
-        ]
-
-        # Try up to 2 times — Gemini occasionally returns the input image unchanged
-        for attempt in range(2):
-            try:
-                response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=self.model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["IMAGE", "TEXT"],
-                    ),
-                )
-            except Exception as exc:
-                return self._classify_model_error(exc)
-
-            image_bytes = self._extract_inline_image_bytes(response)
-            if not image_bytes:
-                if attempt == 0:
-                    continue
-                return {
-                    "status": "error",
-                    "reason": "no_image_in_model_response",
-                    "message": "Model response did not include an edited image.",
-                }
-
-            # Detect if the model returned an input image as an exact byte-for-byte copy
-            result_hash = hashlib.md5(image_bytes).hexdigest()
-            if result_hash in (pose_hash, garment_hash):
-                if attempt == 0:
-                    continue
-                return {
-                    "status": "error",
-                    "reason": "model_returned_input_unchanged",
-                    "message": "Generation failed after retry — the model returned the input unchanged. Please try again.",
-                }
-
-            # Detect re-encoded copies: same visual image but different bytes (MSE-based check).
-            # Only compare against the pose image — that's the one the model tends to echo back.
-            if self._images_nearly_identical(image_bytes, base_image_bytes):
-                if attempt == 0:
-                    continue
-                return {
-                    "status": "error",
-                    "reason": "model_returned_input_unchanged",
-                    "message": "Generation failed after retry — the model made no visible clothing change. Please try again.",
-                }
-
-            break
+        image_bytes = self._extract_inline_image_bytes(response)
+        if not image_bytes:
+            return {
+                "status": "error",
+                "reason": "no_image_in_model_response",
+                "message": "Model response did not include an edited image.",
+            }
 
         output_file = self.output_dir / f"tryon_{job_id}.png"
         output_file.write_bytes(image_bytes)

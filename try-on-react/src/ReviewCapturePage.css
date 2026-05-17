@@ -1,0 +1,140 @@
+/* ── Overlay — same pattern as Browse / ItemDetail ────────────────────────── */
+.review-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 13, 24, 0.45);
+  animation: reviewOverlayIn 0.22s ease both;
+}
+
+@keyframes reviewOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Panel — 97.5 × 97.5 %, #e9e9f2, no topbar, no bottom bar ────────────── */
+.review-panel {
+  width: 97.5%;
+  height: 97.5%;
+  background: #e9e9f2;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: reviewPanelIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes reviewPanelIn {
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ── Content — fills the full panel, no toolbar ─────────────────────────── */
+.review-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Extra top padding nudges the image slightly below true centre, per spec */
+  padding: clamp(28px, 8%, 72px) clamp(16px, 3vw, 32px) clamp(16px, 2.5vh, 28px);
+  gap: clamp(10px, 1.5vh, 18px);
+}
+
+/* ── Captured photo — large, centred, same layout role as product img on P3 */
+.review-img-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #dddde8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.review-img {
+  width: 100%;
+  height: 100%;
+  /* contain so the full body pose is always visible */
+  object-fit: contain;
+  display: block;
+}
+
+/* ── Error state (no Image 1) ────────────────────────────────────────────── */
+.review-no-photo {
+  margin: auto;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.9rem, 1.6vw, 1.1rem);
+  font-weight: 500;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ── Action buttons — identical styling to Page 3's pair ────────────────── */
+.review-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  gap: clamp(8px, 1.5vw, 16px);
+}
+
+/* Shared pill base */
+.review-retake-btn,
+.review-tryon-btn {
+  flex: 1;
+  padding: clamp(10px, 1.4vh, 16px) 0;
+  border-radius: 9999px;
+  border: none;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.82rem, 1.5vw, 1rem);
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: filter 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+/* Retake — crimson, styled like "Ask Associate" on Page 3 */
+.review-retake-btn {
+  background: #db1237;
+  box-shadow: 0 4px 16px rgba(219, 18, 55, 0.3);
+}
+
+.review-retake-btn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(219, 18, 55, 0.4);
+}
+
+.review-retake-btn:active {
+  transform: scale(0.97);
+}
+
+/* Try On — navy, styled like "Try On" on Page 3 */
+.review-tryon-btn {
+  background: #19167b;
+  box-shadow: 0 4px 16px rgba(25, 22, 123, 0.35);
+}
+
+.review-tryon-btn:hover {
+  filter: brightness(1.18);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(25, 22, 123, 0.45);
+}
+
+.review-tryon-btn:active {
+  transform: scale(0.97);
+}
+
+/* Desaturated state when no Image 1 */
+.review-tryon-btn.disabled {
+  filter: saturate(0) opacity(0.45);
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}

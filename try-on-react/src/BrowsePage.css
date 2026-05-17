@@ -1,0 +1,330 @@
+/* ── Browse overlay — sits above the mirror frame ─────────────────────────── */
+.browse-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Subtle backdrop so the camera still peeks around the edges */
+  background: rgba(8, 13, 24, 0.45);
+  animation: browseOverlayIn 0.22s ease both;
+}
+
+@keyframes browseOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Main panel — 97.5 × 97.5 % of the mirror ─────────────────────────────── */
+.browse-panel {
+  width: 97.5%;
+  height: 97.5%;
+  background: #e9e9f2;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: browsePanelIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes browsePanelIn {
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  TOP BAR — 7 % of panel height                                            */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.browse-topbar {
+  flex: 0 0 7%;
+  min-height: 52px;
+  background: #e7e6fa;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+/* Circular back button */
+.browse-back-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #19167b;
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.browse-back-btn:hover {
+  background: #2d29a6;
+  transform: scale(1.07);
+}
+
+.browse-back-btn:active {
+  transform: scale(0.95);
+}
+
+/* Obround search bar */
+.browse-search {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  border: 1.5px solid #19167b;
+  border-radius: 9999px;
+  background: #fff;
+  padding: 0 14px 0 36px;
+  transition: box-shadow 0.15s;
+}
+
+.browse-search:focus-within {
+  box-shadow: 0 0 0 3px rgba(25, 22, 123, 0.12);
+}
+
+.browse-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #19167b;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.browse-search-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.75rem, 1.2vw, 0.88rem);
+  font-weight: 500;
+  color: #19167b;
+}
+
+.browse-search-input::placeholder {
+  color: #8b88c4;
+  font-family: 'Raleway', sans-serif;
+}
+
+/* Filter button + dropdown */
+.browse-filter-wrap {
+  flex-shrink: 0;
+  position: relative;
+}
+
+.browse-filter-btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1.5px solid #19167b;
+  background: #fff;
+  color: #19167b;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.75rem, 1.2vw, 0.88rem);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.browse-filter-btn:hover,
+.browse-filter-btn.open {
+  background: #eeedf9;
+  box-shadow: 0 0 0 3px rgba(25, 22, 123, 0.1);
+}
+
+.browse-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 140px;
+  background: #e9e9f2;
+  border: 1.5px solid #19167b;
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(25, 22, 123, 0.12);
+  animation: dropdownIn 0.15s ease both;
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.browse-filter-option {
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #19167b;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.78rem, 1.2vw, 0.88rem);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.browse-filter-option:hover {
+  background: rgba(25, 22, 123, 0.07);
+}
+
+.browse-filter-option + .browse-filter-option {
+  border-top: 1px solid rgba(25, 22, 123, 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  PRODUCT GRID — 86 % of panel height                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.browse-content {
+  flex: 0 0 86%;
+  min-height: 0;
+  padding: clamp(10px, 1.5vh, 18px) clamp(12px, 2vw, 24px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.browse-no-results {
+  margin: auto;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.9rem, 1.6vw, 1.1rem);
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.browse-product-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: clamp(8px, 1.2vw, 16px);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Individual product card */
+.browse-product-card {
+  background: #ffffff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.browse-product-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 28px rgba(25, 22, 123, 0.15);
+}
+
+.browse-product-card:active {
+  transform: scale(0.98);
+}
+
+.browse-product-card:focus-visible {
+  outline: 2px solid #19167b;
+  outline-offset: 2px;
+}
+
+.browse-product-img-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #f1f0f8;
+}
+
+.browse-product-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.browse-product-card:hover .browse-product-img {
+  transform: scale(1.05);
+}
+
+.browse-product-name {
+  margin: 0;
+  padding: clamp(4px, 0.6vh, 7px) clamp(6px, 0.8vw, 10px) 2px;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.68rem, 1vw, 0.82rem);
+  font-weight: 600;
+  color: #000000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.browse-product-price {
+  margin: 0;
+  padding: 0 clamp(6px, 0.8vw, 10px) clamp(5px, 0.7vh, 8px);
+  font-family: 'Arial', sans-serif;
+  font-size: clamp(0.62rem, 0.9vw, 0.75rem);
+  font-weight: 700;
+  color: #19167b;
+  line-height: 1.3;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  PAGINATION — 7 % of panel height                                         */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.browse-pagination {
+  flex: 0 0 7%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1vw, 12px);
+  background: #e7e6fa;
+  border-top: 1px solid rgba(25, 22, 123, 0.08);
+}
+
+.browse-page-btn {
+  width: clamp(28px, 3.5vw, 38px);
+  height: clamp(28px, 3.5vw, 38px);
+  border-radius: 50%;
+  border: 1.5px solid #19167b;
+  background: transparent;
+  color: #19167b;
+  font-family: 'Raleway', sans-serif;
+  font-size: clamp(0.72rem, 1.1vw, 0.85rem);
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+
+.browse-page-btn:hover {
+  background: rgba(25, 22, 123, 0.08);
+  transform: scale(1.08);
+}
+
+.browse-page-btn.active {
+  background: #19167b;
+  color: #ffffff;
+  border-color: #19167b;
+}
