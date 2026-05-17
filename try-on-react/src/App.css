@@ -343,6 +343,18 @@ body,
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.btn-save {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(5, 150, 105, 0.4);
+}
+
+.btn-save:hover {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 6px 24px rgba(5, 150, 105, 0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
