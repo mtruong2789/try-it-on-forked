@@ -188,23 +188,36 @@ class NanoBananaProcessor:
             return False
 
     @staticmethod
-    def _normalize_to_png(image_bytes: bytes) -> bytes:
+    def _normalize_image(image_bytes: bytes) -> tuple[bytes, str]:
         """
-        Convert any image format (AVIF, WebP, HEIC, JPEG, GIF, BMP, etc.) to PNG bytes.
-        This ensures Gemini always receives a well-formed PNG regardless of source format.
+        Return (image_bytes, mime_type).
+
+        JPEG and PNG pass through unchanged — they are natively supported by Gemini and
+        converting them to PNG wastes CPU and inflates payload size (JPEG is 5-10x smaller).
+        Everything else (AVIF, WebP, HEIC, GIF, BMP, …) is converted to PNG.
         """
+        if image_bytes[:3] == b"\xff\xd8\xff":
+            return image_bytes, "image/jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            return image_bytes, "image/png"
+
+        # Exotic format — convert to PNG with transparency flattened on white
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-            # Flatten transparency onto white background for garment images
             background = Image.new("RGBA", img.size, (255, 255, 255, 255))
             background.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
             img = background.convert("RGB")
             buf = io.BytesIO()
             img.save(buf, format="PNG")
-            return buf.getvalue()
+            return buf.getvalue(), "image/png"
         except Exception:
-            # If PIL can't open it, return as-is and let the API handle it
-            return image_bytes
+            return image_bytes, "image/png"
+
+    @staticmethod
+    def _normalize_to_png(image_bytes: bytes) -> bytes:
+        """Legacy wrapper — kept for any external callers."""
+        result, _ = NanoBananaProcessor._normalize_image(image_bytes)
+        return result
 
     def _read_image_bytes_from_path_or_url(self, source: str) -> bytes:
         source = source.strip()
@@ -424,9 +437,10 @@ class NanoBananaProcessor:
                 exc,
             )
 
-        # Normalize both images to PNG regardless of source format (handles AVIF, WebP, HEIC, etc.)
-        base_image_bytes = await asyncio.to_thread(self._normalize_to_png, base_image_bytes)
-        garment_image_bytes = await asyncio.to_thread(self._normalize_to_png, garment_image_bytes)
+        # Preserve JPEG/PNG as-is; convert exotic formats (AVIF, WebP, HEIC, …) to PNG.
+        # Avoiding unnecessary JPEG→PNG conversion keeps payloads 5-10x smaller and faster.
+        base_image_bytes, base_mime = await asyncio.to_thread(self._normalize_image, base_image_bytes)
+        garment_image_bytes, garment_mime = await asyncio.to_thread(self._normalize_image, garment_image_bytes)
 
         # Detect same-image-twice: if pose and garment are identical, the model will
         # just return the input unchanged — catch this early and return a clear error.
@@ -449,7 +463,7 @@ class NanoBananaProcessor:
                 "VIRTUAL TRY-ON TASK. I will give you two images and you must composite them.\n\n"
                 "IMAGE 1 — The person. This is your base canvas. The output must look exactly like this photo."
             ),
-            types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
+            types.Part.from_bytes(data=base_image_bytes, mime_type=base_mime),
             (
                 "IMAGE 2 — Clothing reference ONLY. "
                 "This image may show a model, mannequin, product flat-lay, hanger, or a person wearing the clothing. "
@@ -458,7 +472,7 @@ class NanoBananaProcessor:
                 "the person's face, skin, hair, body, makeup, face paint, masks, accessories, and background. "
                 "None of those elements may appear in the output. Only the clothing transfers."
             ),
-            types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
+            types.Part.from_bytes(data=garment_image_bytes, mime_type=garment_mime),
             (
                 "IMPORTANT REMINDER about the image above (IMAGE 2): "
                 "Extract ONLY the clothing/garment from it. "
