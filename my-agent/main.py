@@ -106,8 +106,55 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         async def handle_custom_event(event: dict) -> None:
             if not nano_processor:
                 return
-            event_type = event.get("type")
-            payload = event.get("payload", {}) or {}
+
+            event_type = None
+            payload: dict = {}
+            custom_data: dict = {}
+
+            if isinstance(event, dict):
+                event_type = event.get("type")
+                maybe_payload = event.get("payload", {}) or {}
+                payload = maybe_payload if isinstance(maybe_payload, dict) else {}
+                maybe_custom = event.get("custom", {})
+                custom_data = maybe_custom if isinstance(maybe_custom, dict) else {}
+            else:
+                event_type = getattr(event, "type", None)
+                maybe_payload = getattr(event, "payload", {}) or {}
+                payload = maybe_payload if isinstance(maybe_payload, dict) else {}
+                maybe_custom = getattr(event, "custom", None)
+                custom_data = maybe_custom if isinstance(maybe_custom, dict) else {}
+
+            # Case A: SDK wraps custom event under event.custom
+            if custom_data:
+                custom_type = custom_data.get("type")
+                custom_payload = custom_data.get("payload")
+                if event_type in {None, "custom", "event"} and isinstance(custom_type, str):
+                    event_type = custom_type
+                if isinstance(custom_payload, dict):
+                    payload = custom_payload
+                elif isinstance(custom_data, dict):
+                    # Case B: flat custom payload shape {type, image_url, ...}
+                    flat_payload = {k: v for k, v in custom_data.items() if k != "type"}
+                    if flat_payload:
+                        payload = flat_payload
+
+            # Case C: frontend may send nested payload envelope {type, payload:{...}}
+            if isinstance(payload.get("payload"), dict):
+                nested_payload = payload.get("payload", {})
+                if any(
+                    key in nested_payload
+                    for key in ("image_url", "pose_image_url", "item_id", "request_id")
+                ):
+                    payload = nested_payload
+
+            # Case D: event itself may be flat {type, image_url, ...}
+            if isinstance(event, dict) and not payload:
+                flat_payload = {k: v for k, v in event.items() if k not in {"type", "custom", "created_at"}}
+                if flat_payload:
+                    payload = flat_payload
+
+            if not isinstance(payload, dict):
+                payload = {}
 
             if event_type in {"set_merchandise", "generate_tryon"}:
                 image_url = payload.get("image_url")
@@ -128,8 +175,15 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
                 # Reserved for future frame/camera gating logic.
                 _ = payload.get("is_camera_active")
 
+        active_tasks: set[asyncio.Task] = set()
+
+        def _run_custom_event(event):
+            task = asyncio.create_task(handle_custom_event(event))
+            active_tasks.add(task)
+            task.add_done_callback(active_tasks.discard)
+
         try:
-            maybe_coro = call.on("custom", handle_custom_event)
+            maybe_coro = call.on("custom", _run_custom_event)
             # Some SDKs return unsubscribe functions; keep best-effort behavior.
             _ = maybe_coro
         except Exception:

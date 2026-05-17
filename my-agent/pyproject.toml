@@ -8,6 +8,8 @@ dependencies = [
     "python-dotenv",
     "google-genai",
     "pillow",
+    "fastapi",
+    "uvicorn[standard]",
 ]
 
 [project.urls]

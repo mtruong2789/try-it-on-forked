@@ -168,7 +168,14 @@ class NanoBananaProcessor:
             return raw
 
         if self._is_url(source):
-            with urllib.request.urlopen(source, timeout=20) as response:
+            request = urllib.request.Request(
+                source,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; TryOnAI/1.0)",
+                    "Accept": "image/*,*/*;q=0.8",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
                 return response.read()
         return Path(source).read_bytes()
 
@@ -384,6 +391,9 @@ class NanoBananaProcessor:
                     types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
                     types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
                 ],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE", "TEXT"],
+                ),
             )
         except Exception as exc:
             return self._classify_model_error(exc)

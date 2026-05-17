@@ -7,6 +7,19 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, ''),
+        },
+        '/outputs': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+        },
+      },
+    },
     define: {
       'import.meta.env.VITE_STREAM_API_KEY': JSON.stringify(
         env.STREAM_API_KEY || '',

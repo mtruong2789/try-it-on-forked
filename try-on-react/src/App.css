@@ -621,3 +621,299 @@ body,
     gap: 12px;
   }
 }
+
+/* Header top row with sponsor badge */
+.header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sponsor-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sponsor-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stream-logo-link {
+  display: flex;
+  align-items: center;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+  text-decoration: none;
+}
+
+.stream-logo-link:hover {
+  opacity: 1;
+}
+
+/* Dual status badges row */
+.status-badges-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+/* GetStream info card in sidebar */
+.stream-info-card {
+  margin-top: 28px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(0, 95, 255, 0.05);
+  border: 1px solid rgba(0, 95, 255, 0.2);
+}
+
+.stream-info-logo {
+  margin-bottom: 10px;
+}
+
+.stream-info-card p {
+  margin: 0 0 12px 0;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.stream-cta {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #60a5fa;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.stream-cta:hover {
+  color: #93c5fd;
+}
+
+/* Garment catalog images */
+.item-image-wrapper {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: #0f172a;
+}
+
+.item-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.item-card:hover .item-photo {
+  transform: scale(1.06);
+}
+
+/* Upload outfit button */
+.upload-outfit-btn {
+  width: 100%;
+  border: 2px dashed rgba(99, 102, 241, 0.4) !important;
+  background: rgba(99, 102, 241, 0.06) !important;
+  color: #a5b4fc !important;
+  text-align: center;
+  font-size: 0.95rem;
+  padding: 18px !important;
+}
+
+.upload-outfit-btn:hover {
+  border-color: rgba(99, 102, 241, 0.7) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+  color: #c7d2fe !important;
+}
+
+/* Uploaded garment preview */
+.uploaded-garment-preview {
+  margin-top: 12px;
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.uploaded-garment-preview img {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  display: block;
+}
+
+.clear-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(2, 6, 23, 0.85);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.clear-btn:hover {
+  background: rgba(30, 10, 10, 0.9);
+}
+
+/* Readiness panel */
+.readiness-panel {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.readiness-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.check-row.done {
+  color: #34d399;
+}
+
+.check-row span:first-child {
+  font-size: 1rem;
+  width: 18px;
+  text-align: center;
+}
+
+/* Captured pose thumbnail strip */
+.pose-strip {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pose-strip-label {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.pose-strip-thumb {
+  height: 52px;
+  width: 52px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pose-strip-retake {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #94a3b8;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pose-strip-retake:hover {
+  border-color: rgba(148, 163, 184, 0.6);
+  color: #cbd5e1;
+}
+
+/* Step indicators */
+.steps-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  flex: 1;
+  min-width: 0;
+}
+
+.step.active {
+  color: #38bdf8;
+}
+
+.step.done {
+  color: #34d399;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.step.active .step-num {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.step.done .step-num {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+
+.step-arrow {
+  color: #334155;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+/* Section hint text */
+.section-hint {
+  margin: -12px 0 14px 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.4;
+}
