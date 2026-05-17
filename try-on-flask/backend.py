@@ -64,5 +64,29 @@ def create_video_session():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "api_key_set": bool(os.environ.get("STREAM_API_KEY"))}), 200
+
+@app.route('/token', methods=['GET'])
+def get_token():
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+    try:
+        stream_client.upsert_users([{
+            "id": user_id,
+            "name": f"Retail Customer ({user_id})",
+            "role": "user"
+        }])
+        token = stream_client.create_token(user_id=user_id)
+        return jsonify({
+            "token": token,
+            "api_key": os.environ.get("STREAM_API_KEY"),
+            "userId": user_id
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    app.run(port=8080, debug=True)
