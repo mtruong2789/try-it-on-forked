@@ -10,6 +10,7 @@ dependencies = [
     "pillow",
     "fastapi",
     "uvicorn[standard]",
+    "pillow-avif-plugin>=1.5.5",
 ]
 
 [project.urls]

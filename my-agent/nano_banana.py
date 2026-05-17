@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import io
 import time
 import urllib.error
@@ -12,6 +13,11 @@ from typing import Any
 from google import genai
 from google.genai import types
 from PIL import Image
+
+try:
+    import pillow_avif  # registers AVIF support with Pillow  # noqa: F401
+except ImportError:
+    pass
 
 
 class NanoBananaProcessor:
@@ -154,17 +160,34 @@ class NanoBananaProcessor:
             return True
         return False
 
+    @staticmethod
+    def _normalize_to_png(image_bytes: bytes) -> bytes:
+        """
+        Convert any image format (AVIF, WebP, HEIC, JPEG, GIF, BMP, etc.) to PNG bytes.
+        This ensures Gemini always receives a well-formed PNG regardless of source format.
+        """
+        try:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+            # Flatten transparency onto white background for garment images
+            background = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            background.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
+            img = background.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+        except Exception:
+            # If PIL can't open it, return as-is and let the API handle it
+            return image_bytes
+
     def _read_image_bytes_from_path_or_url(self, source: str) -> bytes:
         source = source.strip()
 
-        if source.startswith("data:image/"):
+        if source.startswith("data:"):
             header, encoded = source.split(",", 1)
             if ";base64" in header:
                 raw = base64.b64decode(encoded, validate=False)
             else:
                 raw = urllib.parse.unquote_to_bytes(encoded)
-            if not self._looks_like_image_bytes(raw):
-                raise ValueError("Data URL did not contain a valid image payload.")
             return raw
 
         if self._is_url(source):
@@ -374,19 +397,50 @@ class NanoBananaProcessor:
                 exc,
             )
 
+        # Normalize both images to PNG regardless of source format (handles AVIF, WebP, HEIC, etc.)
+        base_image_bytes = await asyncio.to_thread(self._normalize_to_png, base_image_bytes)
+        garment_image_bytes = await asyncio.to_thread(self._normalize_to_png, garment_image_bytes)
+
+        # Detect same-image-twice: if pose and garment are identical, the model will
+        # just return the input unchanged — catch this early and return a clear error.
+        pose_hash = hashlib.md5(base_image_bytes).hexdigest()
+        garment_hash = hashlib.md5(garment_image_bytes).hexdigest()
+        if pose_hash == garment_hash:
+            return {
+                "status": "error",
+                "reason": "identical_images",
+                "message": "The pose photo and garment image appear to be the same. Please upload a different garment.",
+            }
+
         prompt = (
-            "You are a virtual fitting room. You will receive two images:\n"
-            "- IMAGE 1 (person): a photo of a person standing in front of a mirror or camera.\n"
-            "- IMAGE 2 (garment): a clothing item to try on.\n\n"
-            "Task: Generate a single photorealistic image of the person from IMAGE 1 wearing the garment from IMAGE 2.\n\n"
-            "Rules:\n"
-            "- Preserve the person's exact face, skin tone, hair, body shape, pose, and proportions from IMAGE 1.\n"
-            "- Preserve the original background, lighting, and camera angle from IMAGE 1.\n"
-            "- Keep all accessories (shoes, bags, jewelry) from IMAGE 1 unless hidden by the new garment.\n"
-            "- Replace ONLY the clothing with the garment from IMAGE 2, fitting it naturally to the person's body.\n"
-            "- Match the garment's color, pattern, texture, and style exactly as shown in IMAGE 2.\n"
-            "- Do not change the person's identity, expression, or any other aspect of the scene.\n"
-            "Output: one photorealistic edited image only."
+            "You are a virtual fitting room AI. You will receive two images:\n"
+            "- IMAGE 1 (person): the base photo. This is the canvas. The output must look like IMAGE 1 with only the clothing changed.\n"
+            "- IMAGE 2 (garment reference): used only to extract the clothing item. "
+            "IMAGE 2 may show a model, mannequin, product flat-lay, or person wearing the garment — ignore all of that. "
+            "Do NOT copy, overlay, or blend any person, body, face, skin, or background from IMAGE 2 into the output.\n\n"
+            "STEP 1 — Garment extraction from IMAGE 2: Identify and isolate only the clothing item. "
+            "Discard everything else: the body wearing it, any background, mannequin, watermarks, store logos, pricing tags, and text. "
+            "Use only the garment's shape, color, pattern, texture, and style.\n\n"
+            "STEP 2 — Body analysis from IMAGE 1: Analyse the person's body shape, proportions, pose, stance, "
+            "and limb positions. Even if they are wearing baggy or heavily layered clothing, estimate their true "
+            "body shape beneath using silhouette, posture, and any visible skin.\n\n"
+            "STEP 3 — Layering logic:\n"
+            "  - If the garment is an outer layer (apron, jacket, coat, robe, vest, cardigan), "
+            "place it ON TOP of the person's current clothing without replacing it.\n"
+            "  - If the garment is a base layer (t-shirt, tank top, dress, jeans, shorts, swimwear), "
+            "replace only the relevant clothing region on the person's body.\n"
+            "  - If the new garment is more revealing than what the person is currently wearing, "
+            "accurately show the skin that would naturally be visible — do not over-cover or censor.\n\n"
+            "STEP 4 — Fit to body: Drape and fit the garment to the person's actual body size and proportions from IMAGE 1. "
+            "Adjust for any size difference between the garment reference and the person's true build.\n\n"
+            "STEP 5 — Composite output rules (all are absolute):\n"
+            "  - The output is IMAGE 1 with clothing swapped. Nothing else changes.\n"
+            "  - Preserve the person's exact face, hair, skin tone, expression, pose, and body position from IMAGE 1.\n"
+            "  - Preserve the exact background, lighting, shadows, and camera angle from IMAGE 1.\n"
+            "  - Do NOT introduce any element from IMAGE 2 except the clothing itself.\n"
+            "  - Keep accessories (shoes, bags, jewelry) from IMAGE 1 unless covered by the new garment.\n"
+            "  - Apply the garment faithfully even if it is unconventional, fantastical, or dramatic.\n\n"
+            "Output: one single photorealistic image only. No text, no watermarks, no explanation."
         )
 
         client = genai.Client(api_key=self.api_key)
@@ -412,6 +466,15 @@ class NanoBananaProcessor:
                 "status": "error",
                 "reason": "no_image_in_model_response",
                 "message": "Model response did not include an edited image.",
+            }
+
+        # Detect if the model returned one of the input images unchanged
+        result_hash = hashlib.md5(image_bytes).hexdigest()
+        if result_hash in (pose_hash, garment_hash):
+            return {
+                "status": "error",
+                "reason": "model_returned_input_unchanged",
+                "message": "The model returned the input image without generating a try-on. Try a different garment or retake your photo.",
             }
 
         output_file = self.output_dir / f"tryon_{job_id}.png"
