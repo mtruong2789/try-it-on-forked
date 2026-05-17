@@ -50,6 +50,7 @@ export default function App() {
   const [resultUrl, setResultUrl] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
   const [status, setStatus] = useState('Start the mirror, take a photo of yourself, then upload the outfit you want to wear.');
 
   // Backend
@@ -548,8 +549,22 @@ export default function App() {
         {basePhotoUrl && isMirrorOn && (
           <div className="pose-strip">
             <p className="pose-strip-label">Your photo</p>
-            <img src={basePhotoUrl} alt="Base photo" className="pose-strip-thumb" />
+            <img
+              src={basePhotoUrl}
+              alt="Base photo"
+              className="pose-strip-thumb pose-strip-thumb--clickable"
+              onClick={() => setPhotoPreviewOpen(true)}
+            />
             <button className="pose-strip-retake" onClick={handleTakePhoto}>Retake</button>
+          </div>
+        )}
+
+        {photoPreviewOpen && basePhotoUrl && (
+          <div className="photo-lightbox" onClick={() => setPhotoPreviewOpen(false)}>
+            <div className="photo-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+              <button className="photo-lightbox-close" onClick={() => setPhotoPreviewOpen(false)}>✕</button>
+              <img src={basePhotoUrl} alt="Your photo preview" className="photo-lightbox-img" />
+            </div>
           </div>
         )}
 

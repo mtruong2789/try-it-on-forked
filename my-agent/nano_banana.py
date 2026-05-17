@@ -289,6 +289,22 @@ class NanoBananaProcessor:
             "message": f"Try-on generation failed: {text}",
         }
 
+    @staticmethod
+    def _images_too_similar(img1_bytes: bytes, img2_bytes: bytes, threshold: float = 0.96) -> bool:
+        """
+        Perceptual similarity check — resizes both to 64x64 greyscale and computes
+        normalised mean absolute difference. Returns True if they look nearly identical.
+        """
+        try:
+            img1 = Image.open(io.BytesIO(img1_bytes)).convert("L").resize((64, 64))
+            img2 = Image.open(io.BytesIO(img2_bytes)).convert("L").resize((64, 64))
+            p1, p2 = list(img1.getdata()), list(img2.getdata())
+            diff = sum(abs(a - b) for a, b in zip(p1, p2))
+            similarity = 1.0 - diff / (255 * len(p1))
+            return similarity >= threshold
+        except Exception:
+            return False
+
     def _image_bytes_from_frame(self, frame: Any) -> bytes:
         if isinstance(frame, (bytes, bytearray, memoryview)):
             return bytes(frame)
@@ -444,38 +460,49 @@ class NanoBananaProcessor:
         )
 
         client = genai.Client(api_key=self.api_key)
-        try:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=self.model,
-                contents=[
-                    prompt,
-                    types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
-                    types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
-                ],
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE", "TEXT"],
-                ),
-            )
-        except Exception as exc:
-            return self._classify_model_error(exc)
 
-        image_bytes = self._extract_inline_image_bytes(response)
-        if not image_bytes:
-            return {
-                "status": "error",
-                "reason": "no_image_in_model_response",
-                "message": "Model response did not include an edited image.",
-            }
+        # Try up to 2 times — Gemini occasionally returns the input image unchanged
+        for attempt in range(2):
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=self.model,
+                    contents=[
+                        prompt,
+                        types.Part.from_bytes(data=base_image_bytes, mime_type="image/png"),
+                        types.Part.from_bytes(data=garment_image_bytes, mime_type="image/png"),
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE", "TEXT"],
+                    ),
+                )
+            except Exception as exc:
+                return self._classify_model_error(exc)
 
-        # Detect if the model returned one of the input images unchanged
-        result_hash = hashlib.md5(image_bytes).hexdigest()
-        if result_hash in (pose_hash, garment_hash):
-            return {
-                "status": "error",
-                "reason": "model_returned_input_unchanged",
-                "message": "The model returned the input image without generating a try-on. Try a different garment or retake your photo.",
-            }
+            image_bytes = self._extract_inline_image_bytes(response)
+            if not image_bytes:
+                if attempt == 0:
+                    continue
+                return {
+                    "status": "error",
+                    "reason": "no_image_in_model_response",
+                    "message": "Model response did not include an edited image.",
+                }
+
+            # Detect if the model returned an input image unchanged (exact or perceptual match)
+            result_hash = hashlib.md5(image_bytes).hexdigest()
+            if result_hash in (pose_hash, garment_hash) or self._images_too_similar(image_bytes, base_image_bytes):
+                if attempt == 0:
+                    # Auto-retry once
+                    continue
+                return {
+                    "status": "error",
+                    "reason": "model_returned_input_unchanged",
+                    "message": "Generation failed after retry — the model returned the input unchanged. Please try again.",
+                }
+
+            # Good result — save and return
+            break
 
         output_file = self.output_dir / f"tryon_{job_id}.png"
         output_file.write_bytes(image_bytes)
