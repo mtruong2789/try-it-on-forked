@@ -3,6 +3,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 from getstream import Stream
+from getstream.models import UserRequest
 
 # Load environment variables
 load_dotenv()
@@ -27,11 +28,7 @@ def auth_mirror_user():
 
     try:
         # 1. Upsert/Register the user state on Stream's servers
-        stream_client.upsert_users([{
-            "id": user_id,
-            "name": f"Retail Customer ({user_id})",
-            "role": "user"
-        }])
+        stream_client.upsert_users(UserRequest(id=user_id, name=f"Retail Customer ({user_id})", role="user"))
 
         # 2. Generate a secure, time-limited JWT Token for this specific user ID
         # The client uses this token to authenticate directly with Stream's WebRTC edge
@@ -74,11 +71,7 @@ def get_token():
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     try:
-        stream_client.upsert_users([{
-            "id": user_id,
-            "name": f"Retail Customer ({user_id})",
-            "role": "user"
-        }])
+        stream_client.upsert_users(UserRequest(id=user_id, name=f"Retail Customer ({user_id})", role="user"))
         token = stream_client.create_token(user_id=user_id)
         return jsonify({
             "token": token,
